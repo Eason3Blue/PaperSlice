@@ -10,11 +10,14 @@ from typing import Any
 from PySide6.QtCore import QObject, Signal
 
 from pdfsplitter.application.dto import DocumentDTO, PageInfoDTO, PosterSplitConfigDTO
+from pdfsplitter.application.export_usecase import ExportUseCase
 from pdfsplitter.application.repository import DocumentRepository
 from pdfsplitter.application.usecases import PosterSplitUseCase
+from pdfsplitter.domain.export.export_config import ExportConfig, ExportFormat, ExportResult
 from pdfsplitter.domain.layout.layout_engine import LayoutEngine
 from pdfsplitter.domain.layout.split_lines import SplitLines
 from pdfsplitter.domain.layout.tile_order import TileOrder
+from pdfsplitter.domain.paper.paper_database import PaperDatabase
 from pdfsplitter.infrastructure.config import ConfigService
 
 logger = logging.getLogger(__name__)
@@ -112,7 +115,6 @@ class MainViewModel(QObject):
             self._has_manual_order = False
             self._tile_order = TileOrder.auto(1)
         self._update_split_lines_preview()
-        print(f"[DEBUG] select_page({page_index}): restored={restored} has_manual={self._has_manual_order} order_indices={self._tile_order.indices}")
         if not restored:
             self.order_reset_signal.emit()
 
@@ -186,6 +188,22 @@ class MainViewModel(QObject):
         expected = self._split_lines.tile_count
         return len(self._tile_order.indices) != expected
 
+    def list_papers(self, category: str | None = None) -> list[dict[str, str | float]]:
+        """列出可选纸张.
+
+        Args:
+            category: 可选的类别筛选.
+
+        Returns:
+            [{name, category, width_mm, height_mm}, ...]
+        """
+        db = PaperDatabase.instance()
+        specs = db.list_by_category(category) if category else db.list_all()
+        return [
+            {"name": s.name, "category": s.category, "width_mm": s.size.w, "height_mm": s.size.h}
+            for s in specs
+        ]
+
     def save_project(self, path: str) -> None:
         """保存项目到 .ppslc 文件."""
         self._save_current_page_state()
@@ -257,7 +275,6 @@ class MainViewModel(QObject):
             return
         state = self._serialize_current_page()
         has_content = bool(state["verticals"]) or bool(state["horizontals"]) or state["order_mode"] == "manual"
-        print(f"[DEBUG] _save_current_page_state: page={self._current_page_index} state={state} has_content={has_content}")
         if has_content:
             self._page_states[self._current_page_index] = state
         else:
@@ -295,6 +312,50 @@ class MainViewModel(QObject):
             "_restore_page_state: page=%d verticals=%s has_manual=%s order_indices=%s tile_order_indices=%s",
             page_index, verticals, self._has_manual_order, order_indices, self._tile_order.indices,
         )
+
+    def export(self, output_path: str, paper_name: str, paper_category: str) -> None:
+        """执行切分导出.
+
+        Args:
+            output_path: 输出文件路径.
+            paper_name: 纸张名称.
+            paper_category: 纸张类别.
+        """
+        if self._document is None:
+            self.error_signal.emit("请先加载文档")
+            return
+        if self._split_lines.is_empty:
+            self.error_signal.emit("请先放置切割线")
+            return
+
+        paper_db = PaperDatabase.instance()
+        paper = paper_db.get(paper_name, paper_category)
+        if paper is None:
+            self.error_signal.emit(f"未知纸张: {paper_name}")
+            return
+
+        config = ExportConfig(
+            format=ExportFormat.PDF_SINGLE,
+            output_path=Path(output_path),
+        )
+
+        export_uc = ExportUseCase(self._repository)
+        try:
+            self.progress_signal.emit("正在导出...")
+            result = export_uc.execute(
+                source_path=self._document.path,
+                page_index=self._current_page_index,
+                split_lines=self._split_lines,
+                order=self._tile_order,
+                target_size_mm=(paper.size.w, paper.size.h),
+                config=config,
+            )
+            self.progress_signal.emit(
+                f"导出完成: {result.tile_count} 个图块 → {result.output_paths[0]}"
+            )
+        except Exception as e:
+            logger.exception("export failed")
+            self.error_signal.emit(f"导出失败: {e}")
 
     def _clear_order(self) -> None:
         self._has_manual_order = False

@@ -66,6 +66,20 @@ class Grid:
         """
         return [t for t in self.tiles if t.col == col]
 
+    def get_tile_by_index(self, tile_index: int) -> Tile | None:
+        """按 tile.index 获取图块.
+
+        Args:
+            tile_index: 图块编号.
+
+        Returns:
+            图块, 若不存在则返回 None.
+        """
+        for tile in self.tiles:
+            if tile.index == tile_index:
+                return tile
+        return None
+
     def __iter__(self):
         return iter(self.tiles)
 

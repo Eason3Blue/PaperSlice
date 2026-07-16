@@ -9,6 +9,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QFileDialog,
     QGroupBox,
     QHBoxLayout,
@@ -86,6 +87,22 @@ class MainWindow(QMainWindow):
         file_group.setLayout(fl)
         layout.addWidget(file_group)
 
+        paper_group = QGroupBox("目标纸张")
+        pl = QVBoxLayout()
+        pr1 = QHBoxLayout()
+        pr1.addWidget(QLabel("类别:"))
+        self.combo_category = QComboBox()
+        self.combo_category.addItems(["ISO216", "ANSI", "NorthAmerican"])
+        pr1.addWidget(self.combo_category)
+        pl.addLayout(pr1)
+        pr2 = QHBoxLayout()
+        pr2.addWidget(QLabel("大小:"))
+        self.combo_paper = QComboBox()
+        pr2.addWidget(self.combo_paper)
+        pl.addLayout(pr2)
+        paper_group.setLayout(pl)
+        layout.addWidget(paper_group)
+
         split_group = QGroupBox("切割线")
         sl = QVBoxLayout()
         sl.setSpacing(4)
@@ -130,7 +147,11 @@ class MainWindow(QMainWindow):
 
         layout.addStretch()
 
-        self.btn_export = QPushButton("切分并导出")
+        self.btn_export_page = QPushButton("导出当前页")
+        self.btn_export_page.setMinimumHeight(32)
+        layout.addWidget(self.btn_export_page)
+
+        self.btn_export = QPushButton("切分并导出 (全部页)")
         self.btn_export.setMinimumHeight(36)
         self.btn_export.setStyleSheet("QPushButton { font-weight: bold; background-color: #0078D4; color: white; }")
         layout.addWidget(self.btn_export)
@@ -149,6 +170,7 @@ class MainWindow(QMainWindow):
         self.btn_open.clicked.connect(self._on_open)
         self.btn_save.clicked.connect(self._on_save)
         self.btn_load.clicked.connect(self._on_load)
+        self.combo_category.currentTextChanged.connect(self._on_paper_category_changed)
         self.page_list.currentRowChanged.connect(self._on_page_selected)
 
         self.btn_half_v.clicked.connect(lambda: self._vm.apply_split_preset("half_v"))
@@ -162,7 +184,8 @@ class MainWindow(QMainWindow):
         self.check_auto_order.toggled.connect(self._on_order_mode_changed)
         self.btn_reset_order.clicked.connect(self._on_reset_order)
 
-        self.btn_export.clicked.connect(self._on_export)
+        self.btn_export_page.clicked.connect(self._on_export_page)
+        self.btn_export.clicked.connect(self._on_export_all)
 
         self.preview.line_moved_signal.connect(self._vm.move_line)
         self.preview.tile_clicked_signal.connect(self._on_tile_clicked)
@@ -199,7 +222,19 @@ class MainWindow(QMainWindow):
             )
         self.page_list.setCurrentRow(0)
         self.page_list.blockSignals(False)
+        self._populate_paper_list("ISO216")
         self._vm.render_page_preview(0)
+
+    def _on_paper_category_changed(self, category: str) -> None:
+        self._populate_paper_list(category)
+
+    def _populate_paper_list(self, category: str) -> None:
+        self.combo_paper.clear()
+        papers = self._vm.list_papers(category)
+        for p in papers:
+            self.combo_paper.addItem(p["name"])
+        if papers:
+            self.combo_paper.setCurrentIndex(0)
 
     def _on_preview_ready(self, img_data: bytes) -> None:
         pixmap = QPixmap()
@@ -235,7 +270,8 @@ class MainWindow(QMainWindow):
         self.preview.clear_order()
         self.status_bar.showMessage("排序已重置为自动")
 
-    def _on_export(self) -> None:
+    def _on_export_page(self) -> None:
+        """导出当前页."""
         if self._vm.split_lines.is_empty:
             QMessageBox.warning(self, "提示", "请先放置切割线")
             return
@@ -247,7 +283,22 @@ class MainWindow(QMainWindow):
             )
             if reply != QMessageBox.StandardButton.Yes:
                 return
-        QMessageBox.information(self, "提示", "导出功能将在后续版本中实现")
+
+        default_name = Path(self._vm.document.filename).stem + "_split.pdf"
+        path, _ = QFileDialog.getSaveFileName(
+            self, "导出当前页", default_name,
+            "PDF Files (*.pdf);;All Files (*)"
+        )
+        if not path:
+            return
+
+        paper_name = self.combo_paper.currentText()
+        paper_category = self.combo_category.currentText()
+        self._vm.export(path, paper_name, paper_category)
+
+    def _on_export_all(self) -> None:
+        """导出全部页 (使用各页缓存的分割线配置)."""
+        QMessageBox.information(self, "提示", "全部页批量导出功能将在后续版本中实现")
 
     def _on_save(self) -> None:
         if self._vm.document is None:
