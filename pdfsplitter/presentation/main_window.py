@@ -46,7 +46,7 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
         main_layout = QHBoxLayout(central)
 
-        splitter = QSplitter(Qt.Horizontal)
+        splitter = QSplitter(Qt.Orientation.Horizontal)
         left_panel = self._create_left_panel()
         right_panel = self._create_right_panel()
         splitter.addWidget(left_panel)
