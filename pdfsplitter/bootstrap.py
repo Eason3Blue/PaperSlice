@@ -7,10 +7,11 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
+import sys
+
+from PySide6.QtWidgets import QApplication
 
 from pdfsplitter.application.repository import DocumentRepository
-from pdfsplitter.application.usecases import PosterSplitUseCase
 from pdfsplitter.infrastructure.config import ConfigService
 from pdfsplitter.infrastructure.logging_config import setup_logging
 from pdfsplitter.infrastructure.mupdf_repository import MuPDFRepository
@@ -21,28 +22,32 @@ logger = logging.getLogger(__name__)
 
 
 class App:
-    """应用程序根对象，管理所有依赖."""
+    """应用程序根对象，管理所有依赖.
 
-    def __init__(self) -> None:
+    构造时创建 QApplication 并完成所有组件的 DI 装配.
+    """
+
+    def __init__(self, argv: list[str] | None = None) -> None:
         setup_logging(level=logging.DEBUG if _is_dev_mode() else logging.INFO)
+
+        self._qapp = QApplication(argv or sys.argv)
+        self._qapp.setApplicationName("PDF Poster Splitter")
+        self._qapp.setOrganizationName("PaperSlice")
 
         self.config = ConfigService()
         self.repository: DocumentRepository = MuPDFRepository()
         self.viewmodel = MainViewModel(self.repository, self.config)
         self.main_window = MainWindow(self.viewmodel)
 
-    def run(self) -> None:
-        """启动应用程序."""
-        from PySide6.QtWidgets import QApplication
-        import sys
+    def run(self) -> int:
+        """启动事件循环.
 
-        app = QApplication(sys.argv)
-        app.setApplicationName("PDF Poster Splitter")
-        app.setOrganizationName("pdfsplitter")
-
+        Returns:
+            QApplication 退出码.
+        """
         self.main_window.show()
         logger.info("Application started")
-        sys.exit(app.exec())
+        return self._qapp.exec()
 
 
 def _is_dev_mode() -> bool:

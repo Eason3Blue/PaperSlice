@@ -13,7 +13,7 @@ from pdfsplitter.bootstrap import App
 def main() -> None:
     """应用入口函数."""
     app = App()
-    app.run()
+    sys.exit(app.run())
 
 
 if __name__ == "__main__":
