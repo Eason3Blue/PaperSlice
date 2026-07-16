@@ -176,17 +176,18 @@ class PreviewWidget(QGraphicsView):
         self._pixmap_item.setZValue(0)
         self._scene.addItem(self._pixmap_item)
         self._scene.setSceneRect(QRectF(pixmap.rect()))
+        self._image_size = (pixmap.width(), pixmap.height())
         self.fitInView(self._scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
 
     def set_split_lines(self, verticals: list[float], horizontals: list[float],
                         page_w: float, page_h: float) -> None:
-        """设置切割线位置.
+        """设置切割线位置 (PDF 点坐标，内部自动缩放至场景坐标).
 
         Args:
-            verticals: 垂直线 X 坐标列表.
-            horizontals: 水平线 Y 坐标列表.
-            page_w: 页面宽度.
-            page_h: 页面高度.
+            verticals: 垂直线 X 坐标列表 (PDF 点).
+            horizontals: 水平线 Y 坐标列表 (PDF 点).
+            page_w: 页面宽度 (PDF 点).
+            page_h: 页面高度 (PDF 点).
         """
         for vl in self._vertical_lines:
             self._scene.removeItem(vl)
@@ -197,19 +198,33 @@ class PreviewWidget(QGraphicsView):
         self._vertical_lines.clear()
         self._horizontal_lines.clear()
         self._tile_overlays.clear()
+
+        saved_order = list(self._order_sequence)
         self._order_sequence.clear()
 
-        for i, x in enumerate(verticals):
-            line = _DraggableLine(x, 0, x, page_h, "v", i)
+        scene_w = self._scene.sceneRect().width()
+        scene_h = self._scene.sceneRect().height()
+        if scene_w <= 0 or scene_h <= 0:
+            return
+        self._page_w = page_w
+        self._page_h = page_h
+        sx = scene_w / page_w if page_w > 0 else 1.0
+        sy = scene_h / page_h if page_h > 0 else 1.0
+
+        scaled_verts = [x * sx for x in sorted(verticals)]
+        scaled_horiz = [y * sy for y in sorted(horizontals)]
+
+        for i, x in enumerate(scaled_verts):
+            line = _DraggableLine(x, 0, x, scene_h, "v", i)
             self._scene.addItem(line)
             self._vertical_lines.append(line)
 
-        for i, y in enumerate(horizontals):
-            line = _DraggableLine(0, y, page_w, y, "h", i)
+        for i, y in enumerate(scaled_horiz):
+            line = _DraggableLine(0, y, scene_w, y, "h", i)
             self._scene.addItem(line)
             self._horizontal_lines.append(line)
 
-        self._rebuild_tile_overlays(verticals, horizontals, page_w, page_h)
+        self._rebuild_tile_overlays(scaled_verts, scaled_horiz, scene_w, scene_h)
 
     def _rebuild_tile_overlays(self, verticals: list[float], horizontals: list[float],
                                 page_w: float, page_h: float) -> None:
@@ -260,14 +275,21 @@ class PreviewWidget(QGraphicsView):
             if line._dragging:
                 line._dragging = False
                 scene_pos = self.mapToScene(event.pos())
+                scene_w = self._scene.sceneRect().width()
+                scene_h = self._scene.sceneRect().height()
+                pw = getattr(self, "_page_w", scene_w)
+                ph = getattr(self, "_page_h", scene_h)
+                sx_inv = pw / scene_w if scene_w > 0 else 1.0
+                sy_inv = ph / scene_h if scene_h > 0 else 1.0
                 if line.orientation == "v":
                     pos = scene_pos.x()
+                    pos = max(0.0, min(pos, scene_w))
+                    pdf_pos = pos * sx_inv
                 else:
                     pos = scene_pos.y()
-                pos = max(0.0, min(pos,
-                    self._scene.sceneRect().height() if line.orientation == "h"
-                    else self._scene.sceneRect().width()))
-                self.line_moved_signal.emit(line.orientation, line.line_index, pos)
+                    pos = max(0.0, min(pos, scene_h))
+                    pdf_pos = pos * sy_inv
+                self.line_moved_signal.emit(line.orientation, line.line_index, pdf_pos)
                 return
         super().mouseReleaseEvent(event)
 
