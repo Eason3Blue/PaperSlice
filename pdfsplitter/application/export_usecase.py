@@ -75,3 +75,40 @@ class ExportUseCase:
             target_size_mm=target_size_mm,
             config=config,
         )
+
+    def execute_all(
+        self,
+        source_path: Path,
+        page_configs: dict[int, tuple[SplitLines, TileOrder]],
+        target_size_mm: tuple[float, float],
+        output_path: Path,
+    ) -> ExportResult:
+        """导出多个页面到单个 PDF.
+
+        Args:
+            source_path: 源文件路径.
+            page_configs: {page_index: (SplitLines, TileOrder)}.
+            target_size_mm: 目标纸张 (宽, 高) mm.
+            output_path: 输出文件路径.
+
+        Returns:
+            ExportResult.
+        """
+        source_doc = self._repository.load(source_path)
+        grouped: list[tuple[int, SplitLines, TileOrder]] = []
+        for page_idx in sorted(page_configs.keys()):
+            sl, order = page_configs[page_idx]
+            grouped.append((page_idx, sl, order))
+
+        config = ExportConfig(format=ExportFormat.PDF_SINGLE, output_path=output_path)
+        result = self._pdf_splitter.split_all(
+            source_document=source_doc,
+            page_configs=grouped,
+            target_size_mm=target_size_mm,
+            config=config,
+        )
+        logger.info(
+            "ExportUseCase: exported %d tiles from %d pages → %s",
+            result.tile_count, len(grouped), output_path,
+        )
+        return result

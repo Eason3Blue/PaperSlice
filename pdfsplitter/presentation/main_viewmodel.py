@@ -357,6 +357,73 @@ class MainViewModel(QObject):
             logger.exception("export failed")
             self.error_signal.emit(f"导出失败: {e}")
 
+    def export_all(self, output_path: str, paper_name: str, paper_category: str) -> None:
+        """导出全部已配置的页面到单个 PDF.
+
+        Args:
+            output_path: 输出文件路径.
+            paper_name: 纸张名称.
+            paper_category: 纸张类别.
+        """
+        if self._document is None:
+            self.error_signal.emit("请先加载文档")
+            return
+
+        self._save_current_page_state()
+
+        paper_db = PaperDatabase.instance()
+        paper = paper_db.get(paper_name, paper_category)
+        if paper is None:
+            self.error_signal.emit(f"未知纸张: {paper_name}")
+            return
+
+        skipped: list[int] = []
+        incomplete: list[int] = []
+        page_configs: dict[int, tuple[SplitLines, TileOrder]] = {}
+
+        for page_idx in range(self._document.page_count):
+            if page_idx in self._page_states:
+                state = self._page_states[page_idx]
+                sl = SplitLines(
+                    verticals=tuple(state.get("verticals", [])),
+                    horizontals=tuple(state.get("horizontals", [])),
+                )
+                mode = state.get("order_mode", "auto")
+                indices = state.get("order_indices", [])
+                if mode == "manual" and len(indices) != sl.tile_count:
+                    incomplete.append(page_idx)
+                order = TileOrder(indices=tuple(indices) if indices else tuple(range(sl.tile_count)), mode=mode)
+                page_configs[page_idx] = (sl, order)
+            else:
+                skipped.append(page_idx)
+
+        if not page_configs:
+            self.error_signal.emit("没有任何页面配置了切割线，请先编辑页面")
+            return
+
+        warnings: list[str] = []
+        if skipped:
+            warnings.append(f"以下页面未配置切割线，将被跳过: {[p + 1 for p in skipped]}")
+        if incomplete:
+            warnings.append(f"以下页面排序不完整，未选区块将被舍弃: {[p + 1 for p in incomplete]}")
+
+        export_uc = ExportUseCase(self._repository)
+        try:
+            self.progress_signal.emit("正在导出全部页面...")
+            result = export_uc.execute_all(
+                source_path=self._document.path,
+                page_configs=page_configs,
+                target_size_mm=(paper.size.w, paper.size.h),
+                output_path=Path(output_path),
+            )
+            msg = f"导出完成: {result.tile_count} 个图块 → {result.output_paths[0]}"
+            if warnings:
+                msg += "\n" + "\n".join(warnings)
+            self.progress_signal.emit(msg)
+        except Exception as e:
+            logger.exception("export_all failed")
+            self.error_signal.emit(f"导出失败: {e}")
+
     def _clear_order(self) -> None:
         self._has_manual_order = False
         self._tile_order = TileOrder.auto(max(1, self._split_lines.tile_count))

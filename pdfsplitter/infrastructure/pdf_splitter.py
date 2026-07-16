@@ -11,6 +11,8 @@ from pdfsplitter.domain.export.export_config import ExportConfig, ExportFormat, 
 from pdfsplitter.domain.geometry.rect import Rect
 from pdfsplitter.domain.geometry.size import Size
 from pdfsplitter.domain.layout.grid import Grid
+from pdfsplitter.domain.layout.layout_engine import LayoutEngine
+from pdfsplitter.domain.layout.split_lines import SplitLines
 from pdfsplitter.domain.layout.tile_order import TileOrder
 from pdfsplitter.domain.units.length import Length, MM_PER_INCH, POINTS_PER_INCH
 
@@ -74,6 +76,60 @@ class PdfSplitter:
         src_pdf.close()
         logger.info("PdfSplitter: exported %d tiles to %d file(s)", order.count, len(output_paths))
         return ExportResult(output_paths=tuple(output_paths), tile_count=order.count)
+
+    def split_all(
+        self,
+        source_document: Document,
+        page_configs: list[tuple[int, SplitLines, TileOrder]],
+        target_size_mm: tuple[float, float],
+        config: ExportConfig,
+    ) -> ExportResult:
+        """合并多个页面的切分结果到单个 PDF.
+
+        Args:
+            source_document: 源文档.
+            page_configs: [(page_index, SplitLines, TileOrder), ...].
+            target_size_mm: 目标纸张尺寸 (宽, 高) mm.
+            config: 导出配置.
+
+        Returns:
+            ExportResult.
+        """
+        import fitz
+
+        tw_mm, th_mm = target_size_mm
+        target_w = tw_mm * MM_TO_PT
+        target_h = th_mm * MM_TO_PT
+
+        src_pdf = fitz.open(str(source_document.path))
+        out_pdf = fitz.open()
+
+        total_output = 0
+        for page_index, split_lines, order in page_configs:
+            engine = LayoutEngine()
+            src_page = src_pdf.load_page(page_index)
+            grid = engine.calculate_from_lines(
+                Size(src_page.rect.width, src_page.rect.height), split_lines,
+            )
+            for output_idx, tile_index in enumerate(order.indices):
+                tile = grid.get_tile_by_index(tile_index)
+                if tile is None:
+                    continue
+                out_page = out_pdf.new_page(width=target_w, height=target_h)
+                self._copy_tile_to_page(out_page, src_pdf, src_page, tile.source_rect, target_w, target_h)
+                if config.cut_lines:
+                    self._draw_cut_lines(out_page, target_w, target_h)
+                if config.page_numbers:
+                    total_output += 1
+                    self._draw_page_number(out_page, total_output, 0, target_w, target_h)
+                else:
+                    total_output += 1
+
+        out_pdf.save(str(config.output_path))
+        out_pdf.close()
+        src_pdf.close()
+        logger.info("PdfSplitter: exported %d tiles from %d pages → %s", total_output, len(page_configs), config.output_path)
+        return ExportResult(output_paths=(config.output_path,), tile_count=total_output)
 
     def _split_to_single_pdf(
         self,

@@ -297,8 +297,22 @@ class MainWindow(QMainWindow):
         self._vm.export(path, paper_name, paper_category)
 
     def _on_export_all(self) -> None:
-        """导出全部页 (使用各页缓存的分割线配置)."""
-        QMessageBox.information(self, "提示", "全部页批量导出功能将在后续版本中实现")
+        """导出全部已配置页面."""
+        if self._vm.document is None:
+            QMessageBox.warning(self, "提示", "请先加载文档")
+            return
+
+        default_name = Path(self._vm.document.filename).stem + "_all_split.pdf"
+        path, _ = QFileDialog.getSaveFileName(
+            self, "导出全部页面", default_name,
+            "PDF Files (*.pdf);;All Files (*)"
+        )
+        if not path:
+            return
+
+        paper_name = self.combo_paper.currentText()
+        paper_category = self.combo_category.currentText()
+        self._vm.export_all(path, paper_name, paper_category)
 
     def _on_save(self) -> None:
         if self._vm.document is None:
