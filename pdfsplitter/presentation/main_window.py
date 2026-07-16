@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
@@ -71,6 +72,12 @@ class MainWindow(QMainWindow):
         fl = QVBoxLayout()
         self.btn_open = QPushButton("打开 PDF / 图片")
         fl.addWidget(self.btn_open)
+        project_row = QHBoxLayout()
+        self.btn_save = QPushButton("保存")
+        self.btn_load = QPushButton("加载存档")
+        project_row.addWidget(self.btn_save)
+        project_row.addWidget(self.btn_load)
+        fl.addLayout(project_row)
         self.page_list = QListWidget()
         self.page_list.setMaximumHeight(180)
         fl.addWidget(self.page_list)
@@ -137,6 +144,8 @@ class MainWindow(QMainWindow):
 
     def _connect_signals(self) -> None:
         self.btn_open.clicked.connect(self._on_open)
+        self.btn_save.clicked.connect(self._on_save)
+        self.btn_load.clicked.connect(self._on_load)
         self.page_list.currentRowChanged.connect(self._on_page_selected)
 
         self.btn_half_v.clicked.connect(lambda: self._vm.apply_split_preset("half_v"))
@@ -159,6 +168,8 @@ class MainWindow(QMainWindow):
         self._vm.preview_pixmap_ready_signal.connect(self._on_preview_ready)
         self._vm.split_lines_changed_signal.connect(self.preview.set_split_lines)
         self._vm.order_reset_signal.connect(self.preview.clear_order)
+        self._vm.project_saved_signal.connect(lambda p: self.status_bar.showMessage(f"已保存: {p}"))
+        self._vm.dirty_changed_signal.connect(self._on_dirty_changed)
         self._vm.error_signal.connect(lambda m: QMessageBox.critical(self, "错误", m))
         self._vm.progress_signal.connect(self.status_bar.showMessage)
 
@@ -227,3 +238,63 @@ class MainWindow(QMainWindow):
             if reply != QMessageBox.StandardButton.Yes:
                 return
         QMessageBox.information(self, "提示", "导出功能将在后续版本中实现")
+
+    def _on_save(self) -> None:
+        if self._vm.document is None:
+            QMessageBox.warning(self, "提示", "请先打开文件")
+            return
+        default_name = Path(self._vm.document.filename).stem + ".ppslc"
+        path, _ = QFileDialog.getSaveFileName(
+            self, "保存项目", default_name,
+            "PaperSlice Project (*.ppslc);;All Files (*)"
+        )
+        if path:
+            self._vm.save_project(path)
+
+    def _on_load(self) -> None:
+        if self._vm.is_dirty:
+            reply = QMessageBox.question(
+                self, "未保存的更改",
+                "当前项目有未保存的修改，是否继续加载？",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+        path, _ = QFileDialog.getOpenFileName(
+            self, "加载存档", "",
+            "PaperSlice Project (*.ppslc);;All Files (*)"
+        )
+        if path:
+            self._vm.load_project(path)
+
+    def _on_dirty_changed(self, dirty: bool) -> None:
+        title = "PDF Poster Splitter"
+        if self._vm.project_path:
+            title += f" - {self._vm.project_path.name}"
+        if dirty:
+            title += " *"
+        self.setWindowTitle(title)
+
+    def _maybe_save(self) -> bool:
+        if not self._vm.is_dirty:
+            return True
+        reply = QMessageBox.question(
+            self, "保存更改",
+            "是否保存当前项目的修改？",
+            QMessageBox.StandardButton.Save
+            | QMessageBox.StandardButton.Discard
+            | QMessageBox.StandardButton.Cancel,
+        )
+        if reply == QMessageBox.StandardButton.Save:
+            self._on_save()
+            return not self._vm.is_dirty
+        elif reply == QMessageBox.StandardButton.Discard:
+            return True
+        else:
+            return False
+
+    def closeEvent(self, event) -> None:
+        if self._maybe_save():
+            event.accept()
+        else:
+            event.ignore()

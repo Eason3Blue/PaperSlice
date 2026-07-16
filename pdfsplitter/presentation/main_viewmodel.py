@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 from typing import Any
@@ -14,10 +15,11 @@ from pdfsplitter.application.usecases import PosterSplitUseCase
 from pdfsplitter.domain.layout.layout_engine import LayoutEngine
 from pdfsplitter.domain.layout.split_lines import SplitLines
 from pdfsplitter.domain.layout.tile_order import TileOrder
-from pdfsplitter.domain.paper.paper_database import PaperDatabase
 from pdfsplitter.infrastructure.config import ConfigService
 
 logger = logging.getLogger(__name__)
+
+PROJECT_VERSION = 1
 
 
 class MainViewModel(QObject):
@@ -27,6 +29,8 @@ class MainViewModel(QObject):
     preview_pixmap_ready_signal = Signal(object)
     split_lines_changed_signal = Signal(list, list, float, float)
     order_reset_signal = Signal()
+    project_saved_signal = Signal(str)
+    dirty_changed_signal = Signal(bool)
     error_signal = Signal(str)
     progress_signal = Signal(str)
 
@@ -41,6 +45,9 @@ class MainViewModel(QObject):
         self._tile_order = TileOrder.auto(1)
         self._layout_engine = LayoutEngine()
         self._has_manual_order: bool = False
+        self._is_dirty: bool = False
+        self._project_path: Path | None = None
+        self._page_states: dict[int, dict[str, Any]] = {}
 
     @property
     def document(self) -> DocumentDTO | None:
@@ -60,6 +67,14 @@ class MainViewModel(QObject):
     def tile_order(self) -> TileOrder:
         return self._tile_order
 
+    @property
+    def is_dirty(self) -> bool:
+        return self._is_dirty
+
+    @property
+    def project_path(self) -> Path | None:
+        return self._project_path
+
     def load_document(self, path: str) -> None:
         file_path = Path(path)
         try:
@@ -68,6 +83,11 @@ class MainViewModel(QObject):
             self._document = doc
             self._current_page_index = 0
             self._split_lines = SplitLines.empty()
+            self._tile_order = TileOrder.auto(1)
+            self._has_manual_order = False
+            self._is_dirty = False
+            self._page_states.clear()
+            self._project_path = None
             self.document_loaded_signal.emit(doc)
             self.progress_signal.emit(f"已加载: {file_path.name} ({doc.page_count} 页)")
         except FileNotFoundError:
@@ -79,20 +99,20 @@ class MainViewModel(QObject):
             self.error_signal.emit(f"加载文档时发生未知错误: {path}")
 
     def select_page(self, page_index: int) -> None:
-        if self._document and 0 <= page_index < self._document.page_count:
-            self._current_page_index = page_index
+        if not self._document or not (0 <= page_index < self._document.page_count):
+            return
+        self._save_current_page_state()
+        self._current_page_index = page_index
+        if page_index in self._page_states:
+            self._restore_page_state(page_index)
+        else:
             self._split_lines = SplitLines.empty()
             self._has_manual_order = False
             self._tile_order = TileOrder.auto(1)
-            self._update_split_lines_preview()
-            self.order_reset_signal.emit()
+        self._update_split_lines_preview()
+        self.order_reset_signal.emit()
 
     def apply_split_preset(self, preset: str) -> None:
-        """应用预设切割, 始终重置为预设状态并清除排序.
-
-        Args:
-            preset: "half_v", "half_h", "quarter"
-        """
         page = self.current_page_info
         if page is None:
             return
@@ -103,24 +123,25 @@ class MainViewModel(QObject):
             self._split_lines = SplitLines.halved_horizontal(page.height_pt)
         elif preset == "quarter":
             self._split_lines = SplitLines.quartered(page.width_pt, page.height_pt)
+        self._mark_dirty()
         self._update_split_lines_preview()
 
     def add_vertical_line(self) -> None:
-        """添加垂直线."""
         page = self.current_page_info
         if page is None:
             return
         center = page.width_pt / 2.0
         self._split_lines = self._split_lines.with_vertical(center)
+        self._mark_dirty()
         self._update_split_lines_preview()
 
     def add_horizontal_line(self) -> None:
-        """添加水平线."""
         page = self.current_page_info
         if page is None:
             return
         center = page.height_pt / 2.0
         self._split_lines = self._split_lines.with_horizontal(center)
+        self._mark_dirty()
         self._update_split_lines_preview()
 
     def move_line(self, orientation: str, index: int, position: float) -> None:
@@ -131,45 +152,145 @@ class MainViewModel(QObject):
             self._split_lines = self._split_lines.move_vertical(index, position, 0.0, page.width_pt)
         else:
             self._split_lines = self._split_lines.move_horizontal(index, position, 0.0, page.height_pt)
+        self._mark_dirty()
         self._update_split_lines_preview()
 
     def clear_split_lines(self) -> None:
-        """清除所有切割线并重置排序."""
         self._clear_order()
         self._split_lines = SplitLines.empty()
+        self._mark_dirty()
         self._update_split_lines_preview()
 
     def set_tile_order(self, ordered_indices: list[int]) -> None:
         self._has_manual_order = True
         self._tile_order = TileOrder.auto(len(ordered_indices)).with_manual_order(ordered_indices)
+        self._mark_dirty()
 
     def reset_order(self) -> None:
         tile_count = self._split_lines.tile_count
         self._has_manual_order = False
         self._tile_order = TileOrder.auto(max(1, tile_count))
+        self._mark_dirty()
 
     @property
     def has_manual_order(self) -> bool:
         return self._has_manual_order
 
     def has_incomplete_order(self) -> bool:
-        """手动排序模式下是否还有未选中的图块."""
         if not self._has_manual_order:
             return False
         expected = self._split_lines.tile_count
         return len(self._tile_order.indices) != expected
+
+    def save_project(self, path: str) -> None:
+        """保存项目到 .ppslc 文件."""
+        self._save_current_page_state()
+        file_path = Path(path)
+        if file_path.suffix.lower() != ".ppslc":
+            file_path = file_path.with_suffix(".ppslc")
+
+        data: dict[str, Any] = {
+            "version": PROJECT_VERSION,
+            "source_path": str(self._document.path) if self._document else "",
+            "pages": {},
+        }
+        page_states = dict(self._page_states)
+        page_states[self._current_page_index] = self._serialize_current_page()
+        for idx, state in page_states.items():
+            if any(state.values()):
+                data["pages"][str(idx)] = state
+
+        try:
+            with open(file_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            self._project_path = file_path
+            self._is_dirty = False
+            self.dirty_changed_signal.emit(False)
+            self.project_saved_signal.emit(str(file_path))
+            logger.info("Project saved to %s", file_path)
+        except OSError as e:
+            self.error_signal.emit(f"保存失败: {e}")
+
+    def load_project(self, path: str) -> None:
+        """从 .ppslc 文件加载项目."""
+        file_path = Path(path)
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            self.error_signal.emit(f"无法读取存档: {e}")
+            return
+
+        version = data.get("version", 0)
+        if version > PROJECT_VERSION:
+            self.error_signal.emit(f"存档版本 {version} 高于当前支持版本 {PROJECT_VERSION}")
+            return
+
+        source_path = data.get("source_path", "")
+        if source_path:
+            self.progress_signal.emit(f"加载源文件: {Path(source_path).name} ...")
+            self.load_document(source_path)
+
+        self._page_states.clear()
+        for key, state in data.get("pages", {}).items():
+            self._page_states[int(key)] = state
+
+        if self._document:
+            self.select_page(0)
+            self.render_page_preview(0)
+        self._project_path = file_path
+        self._is_dirty = False
+        self.dirty_changed_signal.emit(False)
+        self.project_saved_signal.emit(str(file_path))
+        logger.info("Project loaded from %s", file_path)
+
+    def _save_current_page_state(self) -> None:
+        if self._document is None:
+            return
+        state = self._serialize_current_page()
+        if any(state.values()):
+            self._page_states[self._current_page_index] = state
+        else:
+            self._page_states.pop(self._current_page_index, None)
+
+    def _serialize_current_page(self) -> dict[str, Any]:
+        order_mode = "manual" if self._has_manual_order else "auto"
+        return {
+            "verticals": list(self._split_lines.verticals),
+            "horizontals": list(self._split_lines.horizontals),
+            "order_mode": order_mode,
+            "order_indices": list(self._tile_order.indices),
+        }
+
+    def _restore_page_state(self, page_index: int) -> None:
+        state = self._page_states.get(page_index, {})
+        verticals = state.get("verticals", [])
+        horizontals = state.get("horizontals", [])
+        order_mode = state.get("order_mode", "auto")
+        order_indices = state.get("order_indices", [])
+
+        self._split_lines = SplitLines(
+            verticals=tuple(verticals),
+            horizontals=tuple(horizontals),
+        )
+        self._has_manual_order = (order_mode == "manual")
+        if order_indices:
+            self._tile_order = TileOrder(
+                indices=tuple(order_indices),
+                mode=order_mode,
+            )
+        else:
+            self._tile_order = TileOrder.auto(max(1, self._split_lines.tile_count))
 
     def _clear_order(self) -> None:
         self._has_manual_order = False
         self._tile_order = TileOrder.auto(max(1, self._split_lines.tile_count))
         self.order_reset_signal.emit()
 
-    def _reset_all(self) -> None:
-        """清除所有分割线和排序状态."""
-        self._split_lines = SplitLines.empty()
-        self._has_manual_order = False
-        self._tile_order = TileOrder.auto(1)
-        self.order_reset_signal.emit()
+    def _mark_dirty(self) -> None:
+        if not self._is_dirty:
+            self._is_dirty = True
+            self.dirty_changed_signal.emit(True)
 
     def _update_split_lines_preview(self) -> None:
         page = self.current_page_info
@@ -183,8 +304,7 @@ class MainViewModel(QObject):
         )
 
     def render_page_preview(self, page_index: int) -> None:
-        page = self.current_page_info
-        if page is None or self._document is None:
+        if self._document is None:
             return
         doc_path = self._document.path
         import fitz
