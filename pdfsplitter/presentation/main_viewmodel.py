@@ -27,7 +27,7 @@ class MainViewModel(QObject):
 
     document_loaded_signal = Signal(DocumentDTO)
     preview_pixmap_ready_signal = Signal(object)
-    split_lines_changed_signal = Signal(list, list, float, float)
+    split_lines_changed_signal = Signal(list, list, float, float, list)
     order_reset_signal = Signal()
     project_saved_signal = Signal(str)
     dirty_changed_signal = Signal(bool)
@@ -101,16 +101,20 @@ class MainViewModel(QObject):
     def select_page(self, page_index: int) -> None:
         if not self._document or not (0 <= page_index < self._document.page_count):
             return
-        self._save_current_page_state()
+        if page_index != self._current_page_index:
+            self._save_current_page_state()
         self._current_page_index = page_index
-        if page_index in self._page_states:
+        restored = page_index in self._page_states
+        if restored:
             self._restore_page_state(page_index)
         else:
             self._split_lines = SplitLines.empty()
             self._has_manual_order = False
             self._tile_order = TileOrder.auto(1)
         self._update_split_lines_preview()
-        self.order_reset_signal.emit()
+        print(f"[DEBUG] select_page({page_index}): restored={restored} has_manual={self._has_manual_order} order_indices={self._tile_order.indices}")
+        if not restored:
+            self.order_reset_signal.emit()
 
     def apply_split_preset(self, preset: str) -> None:
         page = self.current_page_info
@@ -197,7 +201,8 @@ class MainViewModel(QObject):
         page_states = dict(self._page_states)
         page_states[self._current_page_index] = self._serialize_current_page()
         for idx, state in page_states.items():
-            if any(state.values()):
+            has_content = bool(state.get("verticals")) or bool(state.get("horizontals")) or state.get("order_mode") == "manual"
+            if has_content:
                 data["pages"][str(idx)] = state
 
         try:
@@ -227,9 +232,12 @@ class MainViewModel(QObject):
             return
 
         source_path = data.get("source_path", "")
-        if source_path:
+        if source_path and Path(source_path).exists():
             self.progress_signal.emit(f"加载源文件: {Path(source_path).name} ...")
             self.load_document(source_path)
+        elif source_path:
+            self.error_signal.emit(f"源文件不存在: {source_path}")
+            return
 
         self._page_states.clear()
         for key, state in data.get("pages", {}).items():
@@ -248,7 +256,9 @@ class MainViewModel(QObject):
         if self._document is None:
             return
         state = self._serialize_current_page()
-        if any(state.values()):
+        has_content = bool(state["verticals"]) or bool(state["horizontals"]) or state["order_mode"] == "manual"
+        print(f"[DEBUG] _save_current_page_state: page={self._current_page_index} state={state} has_content={has_content}")
+        if has_content:
             self._page_states[self._current_page_index] = state
         else:
             self._page_states.pop(self._current_page_index, None)
@@ -281,6 +291,10 @@ class MainViewModel(QObject):
             )
         else:
             self._tile_order = TileOrder.auto(max(1, self._split_lines.tile_count))
+        logger.debug(
+            "_restore_page_state: page=%d verticals=%s has_manual=%s order_indices=%s tile_order_indices=%s",
+            page_index, verticals, self._has_manual_order, order_indices, self._tile_order.indices,
+        )
 
     def _clear_order(self) -> None:
         self._has_manual_order = False
@@ -296,11 +310,17 @@ class MainViewModel(QObject):
         page = self.current_page_info
         if page is None:
             return
+        order_indices = list(self._tile_order.indices) if self._has_manual_order else []
+        logger.debug(
+            "_update_split_lines_preview: page=%d has_manual=%s order=%s",
+            self._current_page_index, self._has_manual_order, order_indices,
+        )
         self.split_lines_changed_signal.emit(
             list(self._split_lines.verticals),
             list(self._split_lines.horizontals),
             page.width_pt,
             page.height_pt,
+            order_indices,
         )
 
     def render_page_preview(self, page_index: int) -> None:
@@ -319,3 +339,7 @@ class MainViewModel(QObject):
             self.preview_pixmap_ready_signal.emit(img_data)
         except Exception:
             logger.exception("render_page_preview failed")
+
+    def refresh_preview_state(self) -> None:
+        """刷新预览的切割线和排序状态 (用于 set_page_image 清空后恢复)."""
+        self._update_split_lines_preview()

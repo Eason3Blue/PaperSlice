@@ -112,6 +112,7 @@ class _TileOverlay(QGraphicsRectItem):
         else:
             self.setBrush(QBrush(TILE_FILL))
         self.update()
+        print(f"[DEBUG] _TileOverlay(tile={self.tile_index}).set_order({number}) rect={self.rect().width():.0f}x{self.rect().height():.0f}")
 
     @property
     def order_number(self) -> int | None:
@@ -197,14 +198,16 @@ class PreviewWidget(QGraphicsView):
         self.fitInView(self._scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
 
     def set_split_lines(self, verticals: list[float], horizontals: list[float],
-                        page_w: float, page_h: float) -> None:
-        """设置切割线位置 (PDF 点坐标，内部自动缩放至场景坐标).
+                        page_w: float, page_h: float,
+                        order_indices: list[int] | None = None) -> None:
+        """设置切割线位置与排序 (PDF 点坐标，内部自动缩放至场景坐标).
 
         Args:
             verticals: 垂直线 X 坐标列表 (PDF 点).
             horizontals: 水平线 Y 坐标列表 (PDF 点).
             page_w: 页面宽度 (PDF 点).
             page_h: 页面高度 (PDF 点).
+            order_indices: 排序索引列表, None 或空列表表示自动/无排序.
         """
         for vl in self._vertical_lines:
             self._scene.removeItem(vl)
@@ -216,8 +219,9 @@ class PreviewWidget(QGraphicsView):
         self._horizontal_lines.clear()
         self._tile_overlays.clear()
 
-        saved_order = list(self._order_sequence)
+        saved_order_from_param = order_indices if order_indices else None
         self._order_sequence.clear()
+        print(f"[DEBUG] set_split_lines: order_indices={order_indices!r} saved={saved_order_from_param!r}")
 
         scene_w = self._scene.sceneRect().width()
         scene_h = self._scene.sceneRect().height()
@@ -243,11 +247,15 @@ class PreviewWidget(QGraphicsView):
 
         self._rebuild_tile_overlays(scaled_verts, scaled_horiz, scene_w, scene_h)
 
-        if saved_order:
-            self._order_sequence = saved_order
-            for order_num, tile_idx in enumerate(saved_order):
+        if saved_order_from_param:
+            print(f"[DEBUG] set_split_lines: applying order to {len(self._tile_overlays)} overlays")
+            self._order_sequence = list(saved_order_from_param)
+            for order_num, tile_idx in enumerate(saved_order_from_param):
                 if tile_idx < len(self._tile_overlays):
+                    print(f"[DEBUG]   tile {tile_idx} -> order {order_num}")
                     self._tile_overlays[tile_idx].set_order(order_num)
+            self._scene.update()
+            self.viewport().update()
 
     def _rebuild_tile_overlays(self, verticals: list[float], horizontals: list[float],
                                 page_w: float, page_h: float) -> None:

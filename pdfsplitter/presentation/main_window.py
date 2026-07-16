@@ -116,10 +116,13 @@ class MainWindow(QMainWindow):
 
         order_group = QGroupBox("排序方式")
         ol = QVBoxLayout()
-        self.check_auto_order = QCheckBox("自动顺序")
-        self.check_auto_order.setChecked(True)
+        ol.setSpacing(4)
+        self.check_auto_order = QCheckBox("自动顺序 (从左到右, 从上到下)")
+        self.check_auto_order.setChecked(False)
         ol.addWidget(self.check_auto_order)
-        ol.addWidget(QLabel("或: 手动模式下点击预览图块标记顺序"))
+        self.label_order_hint = QLabel("手动模式: 点击预览图块标记输出顺序")
+        self.label_order_hint.setStyleSheet("color: #888;")
+        ol.addWidget(self.label_order_hint)
         self.btn_reset_order = QPushButton("重置顺序")
         ol.addWidget(self.btn_reset_order)
         order_group.setLayout(ol)
@@ -202,6 +205,7 @@ class MainWindow(QMainWindow):
         pixmap = QPixmap()
         pixmap.loadFromData(img_data, "PNG")
         self.preview.set_page_image(pixmap)
+        self._vm.refresh_preview_state()
         page = self._vm.current_page_info
         if page:
             self.label_page_info.setText(
@@ -212,9 +216,15 @@ class MainWindow(QMainWindow):
         if checked:
             self._vm.reset_order()
             self.preview.clear_order()
+            self.label_order_hint.setText("已启用自动顺序, 取消勾选后可手动点击图块排序")
+            self.label_order_hint.setStyleSheet("color: #d9534f; font-weight: bold;")
+        else:
+            self.label_order_hint.setText("手动模式: 点击预览图块标记输出顺序")
+            self.label_order_hint.setStyleSheet("color: #888;")
 
     def _on_tile_clicked(self, tile_index: int) -> None:
         if self.check_auto_order.isChecked():
+            self.status_bar.showMessage('请先取消勾选"自动顺序"以启用手动排序')
             return
         order = self.preview.get_order_sequence()
         self._vm.set_tile_order(order)
