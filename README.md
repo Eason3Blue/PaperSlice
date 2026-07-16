@@ -377,4 +377,4 @@ pytest tests/ --cov=pdfsplitter --cov-report=html
 
 ## 许可证
 
-MIT License
+GPL v3.0 License
