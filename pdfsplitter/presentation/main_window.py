@@ -155,6 +155,7 @@ class MainWindow(QMainWindow):
         self._vm.document_loaded_signal.connect(self._on_document_loaded)
         self._vm.preview_pixmap_ready_signal.connect(self._on_preview_ready)
         self._vm.split_lines_changed_signal.connect(self.preview.set_split_lines)
+        self._vm.order_reset_signal.connect(self.preview.clear_order)
         self._vm.error_signal.connect(lambda m: QMessageBox.critical(self, "错误", m))
         self._vm.progress_signal.connect(self.status_bar.showMessage)
 
@@ -211,4 +212,15 @@ class MainWindow(QMainWindow):
         self.status_bar.showMessage("排序已重置为自动")
 
     def _on_export(self) -> None:
+        if self._vm.split_lines.is_empty:
+            QMessageBox.warning(self, "提示", "请先放置切割线")
+            return
+        if self._vm.has_incomplete_order():
+            reply = QMessageBox.question(
+                self, "确认",
+                "仍有未选择顺序的图块，\n未选择的图块将被舍弃，是否继续？",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
         QMessageBox.information(self, "提示", "导出功能将在后续版本中实现")
