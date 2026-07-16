@@ -54,8 +54,8 @@ class MuPDFRepository(DocumentRepository):
         pages: list[Page] = []
         for i in range(pdf.page_count):
             fitz_page = pdf.load_page(i)
-            media = fitz_page.media_box
-            crop = fitz_page.crop_box
+            media = fitz_page.mediabox
+            crop = fitz_page.cropbox
             media_rect = Rect(media.x0, media.y0, media.x1, media.y1)
             crop_rect = Rect(crop.x0, crop.y0, crop.x1, crop.y1)
             pages.append(Page(index=i, media_box=media_rect, crop_box=crop_rect))
