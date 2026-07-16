@@ -133,6 +133,12 @@ class MainViewModel(QObject):
             self._split_lines = self._split_lines.move_horizontal(index, position, 0.0, page.height_pt)
         self._update_split_lines_preview()
 
+    def clear_split_lines(self) -> None:
+        """清除所有切割线并重置排序."""
+        self._clear_order()
+        self._split_lines = SplitLines.empty()
+        self._update_split_lines_preview()
+
     def set_tile_order(self, ordered_indices: list[int]) -> None:
         self._has_manual_order = True
         self._tile_order = TileOrder.auto(len(ordered_indices)).with_manual_order(ordered_indices)

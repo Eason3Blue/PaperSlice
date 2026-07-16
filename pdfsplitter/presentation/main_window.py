@@ -102,6 +102,8 @@ class MainWindow(QMainWindow):
         sl.addLayout(manual_row)
 
         sl.addWidget(QLabel("提示: 拖拽切割线可微调位置"))
+        self.btn_clear_lines = QPushButton("清除切割线")
+        sl.addWidget(self.btn_clear_lines)
         split_group.setLayout(sl)
         layout.addWidget(split_group)
 
@@ -143,6 +145,7 @@ class MainWindow(QMainWindow):
 
         self.btn_add_v.clicked.connect(self._vm.add_vertical_line)
         self.btn_add_h.clicked.connect(self._vm.add_horizontal_line)
+        self.btn_clear_lines.clicked.connect(self._vm.clear_split_lines)
 
         self.check_auto_order.toggled.connect(self._on_order_mode_changed)
         self.btn_reset_order.clicked.connect(self._on_reset_order)
