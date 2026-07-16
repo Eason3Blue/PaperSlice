@@ -87,7 +87,10 @@ class _DraggableLine(QGraphicsLineItem):
 
 
 class _TileOverlay(QGraphicsRectItem):
-    """图块覆盖层，用于高亮和点击排序."""
+    """图块覆盖层，用于高亮和点击排序.
+
+    序号通过 paint 直接绘制在 rect 内，不创建独立 scene item.
+    """
 
     def __init__(self, rect: QRectF, tile_index: int, row: int, col: int,
                  parent=None) -> None:
@@ -96,7 +99,6 @@ class _TileOverlay(QGraphicsRectItem):
         self.row = row
         self.col = col
         self._order_number: int | None = None
-        self._label: QGraphicsTextItem | None = None
         self.setPen(QPen(Qt.PenStyle.NoPen))
         self.setBrush(QBrush(TILE_FILL))
         self.setZValue(5)
@@ -105,28 +107,43 @@ class _TileOverlay(QGraphicsRectItem):
 
     def set_order(self, number: int | None) -> None:
         self._order_number = number
-        if self._label:
-            self.scene().removeItem(self._label)
-            self._label = None
         if number is not None:
             self.setBrush(QBrush(TILE_ORDERED_FILL))
-            cx = self.rect().center().x()
-            cy = self.rect().center().y()
-            self._label = QGraphicsTextItem(str(number + 1))
-            self._label.setDefaultTextColor(TEXT_COLOR)
-            font = QFont()
-            font.setBold(True)
-            font.setPointSize(16)
-            self._label.setFont(font)
-            self._label.setPos(cx - 10, cy - 14)
-            self._label.setZValue(15)
-            self.scene().addItem(self._label)
-            bg = QGraphicsRectItem(cx - 14, cy - 16, 28, 28, self._label)
-            bg.setBrush(QBrush(TEXT_BG))
-            bg.setPen(QPen(Qt.PenStyle.NoPen))
-            bg.setZValue(14)
         else:
             self.setBrush(QBrush(TILE_FILL))
+        self.update()
+
+    @property
+    def order_number(self) -> int | None:
+        return self._order_number
+
+    def paint(self, painter, option, widget=None) -> None:
+        super().paint(painter, option, widget)
+        if self._order_number is not None:
+            r = self.rect()
+            if r.width() < 30 or r.height() < 30:
+                return
+            text = str(self._order_number + 1)
+            font = QFont()
+            font.setBold(True)
+            font.setPointSize(14)
+            painter.setFont(font)
+
+            fm = painter.fontMetrics()
+            text_w = fm.horizontalAdvance(text)
+            text_h = fm.height()
+            cx = r.center().x()
+            cy = r.center().y()
+
+            bg_rect = QRectF(cx - text_w / 2 - 8, cy - text_h / 2 - 4,
+                             text_w + 16, text_h + 8)
+            painter.setPen(QPen(Qt.PenStyle.NoPen))
+            painter.setBrush(QBrush(TEXT_BG))
+            painter.drawRoundedRect(bg_rect, 4, 4)
+
+            painter.setPen(QPen(TEXT_COLOR))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawText(bg_rect, Qt.AlignmentFlag.AlignCenter, text)
 
     @property
     def order_number(self) -> int | None:
@@ -225,6 +242,12 @@ class PreviewWidget(QGraphicsView):
             self._horizontal_lines.append(line)
 
         self._rebuild_tile_overlays(scaled_verts, scaled_horiz, scene_w, scene_h)
+
+        if saved_order:
+            self._order_sequence = saved_order
+            for order_num, tile_idx in enumerate(saved_order):
+                if tile_idx < len(self._tile_overlays):
+                    self._tile_overlays[tile_idx].set_order(order_num)
 
     def _rebuild_tile_overlays(self, verticals: list[float], horizontals: list[float],
                                 page_w: float, page_h: float) -> None:
