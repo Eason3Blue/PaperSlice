@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pdfsplitter.domain.geometry.rect import Rect
 from pdfsplitter.domain.geometry.size import Size
 from pdfsplitter.domain.layout.grid import Grid
+from pdfsplitter.domain.layout.split_lines import SplitLines
 from pdfsplitter.domain.layout.tile import Tile
 from pdfsplitter.domain.units.length import Length
 
@@ -121,4 +122,51 @@ class LayoutEngine:
                 tile_index += 1
 
         logger.info("LayoutEngine: calculated %dx%d grid with %d tiles", rows, cols, len(tiles))
+        return Grid(rows=rows, cols=cols, tiles=tuple(tiles))
+
+    def calculate_from_lines(
+        self,
+        page_size: Size,
+        split_lines: SplitLines,
+    ) -> Grid:
+        """根据切割线计算网格.
+
+        垂直线定义列边界, 水平线定义行边界.
+        页面边缘 (0 和 page_w/page_h) 自动作为首尾边界.
+
+        Args:
+            page_size: 源页面尺寸 (PDF 点).
+            split_lines: 切割线定义.
+
+        Returns:
+            Grid 实例.
+        """
+        page_w = page_size.w
+        page_h = page_size.h
+
+        x_boundaries = (0.0, *split_lines.verticals, page_w)
+        y_boundaries = (0.0, *split_lines.horizontals, page_h)
+
+        rows = len(y_boundaries) - 1
+        cols = len(x_boundaries) - 1
+
+        tiles: list[Tile] = []
+        tile_index = 0
+
+        for row in range(rows):
+            y0 = y_boundaries[row]
+            y1 = y_boundaries[row + 1]
+            for col in range(cols):
+                x0 = x_boundaries[col]
+                x1 = x_boundaries[col + 1]
+                source_rect = Rect(x0, y0, x1, y1)
+                tiles.append(Tile(index=tile_index, row=row, col=col, source_rect=source_rect))
+                tile_index += 1
+
+        logger.info(
+            "LayoutEngine: calculated %dx%d grid from %d lines (%d tiles)",
+            rows, cols,
+            len(split_lines.verticals) + len(split_lines.horizontals),
+            len(tiles),
+        )
         return Grid(rows=rows, cols=cols, tiles=tuple(tiles))

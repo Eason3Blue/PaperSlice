@@ -1,14 +1,13 @@
-"""Main Window - 主窗口视图."""
+"""Main Window - 主窗口视图 (交互式预览 + 切割线)."""
 
 from __future__ import annotations
 
 import logging
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
-    QApplication,
-    QComboBox,
-    QDoubleSpinBox,
+    QCheckBox,
     QFileDialog,
     QGroupBox,
     QHBoxLayout,
@@ -17,21 +16,24 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
-    QSpinBox,
     QSplitter,
     QStatusBar,
     QVBoxLayout,
     QWidget,
 )
 
-from pdfsplitter.application.dto import DocumentDTO, LayoutResultDTO
+from pdfsplitter.application.dto import DocumentDTO
 from pdfsplitter.presentation.main_viewmodel import MainViewModel
+from pdfsplitter.presentation.preview_widget import PreviewWidget
 
 logger = logging.getLogger(__name__)
 
 
 class MainWindow(QMainWindow):
-    """PDF Poster Splitter 主窗口."""
+    """PDF Poster Splitter 主窗口.
+
+    布局: 左侧面板(文件+控制) | 右侧预览
+    """
 
     def __init__(self, viewmodel: MainViewModel) -> None:
         super().__init__()
@@ -39,175 +41,174 @@ class MainWindow(QMainWindow):
         self._setup_ui()
         self._connect_signals()
         self.setWindowTitle("PDF Poster Splitter")
-        self.resize(1100, 700)
+        self.resize(1300, 800)
 
     def _setup_ui(self) -> None:
         central = QWidget()
         self.setCentralWidget(central)
         main_layout = QHBoxLayout(central)
+        main_layout.setContentsMargins(8, 8, 8, 8)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
-        left_panel = self._create_left_panel()
-        right_panel = self._create_right_panel()
-        splitter.addWidget(left_panel)
-        splitter.addWidget(right_panel)
-        splitter.setSizes([350, 750])
+        splitter.addWidget(self._create_left_panel())
+        splitter.addWidget(self._create_preview_panel())
+        splitter.setSizes([320, 960])
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
         main_layout.addWidget(splitter)
 
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
-        self.status_bar.showMessage("就绪")
+        self.status_bar.showMessage("就绪 - 请打开 PDF 文件")
 
     def _create_left_panel(self) -> QWidget:
         panel = QWidget()
         layout = QVBoxLayout(panel)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(6)
 
         file_group = QGroupBox("文件")
-        file_layout = QVBoxLayout()
-        btn_layout = QHBoxLayout()
-        self.btn_open = QPushButton("打开 PDF")
-        btn_layout.addWidget(self.btn_open)
-        file_layout.addLayout(btn_layout)
+        fl = QVBoxLayout()
+        self.btn_open = QPushButton("打开 PDF / 图片")
+        fl.addWidget(self.btn_open)
         self.page_list = QListWidget()
-        file_layout.addWidget(self.page_list)
-        file_group.setLayout(file_layout)
+        self.page_list.setMaximumHeight(180)
+        fl.addWidget(self.page_list)
+        self.label_page_info = QLabel("未选择页面")
+        fl.addWidget(self.label_page_info)
+        file_group.setLayout(fl)
         layout.addWidget(file_group)
 
-        paper_group = QGroupBox("纸张设置")
-        paper_layout = QVBoxLayout()
+        split_group = QGroupBox("切割线")
+        sl = QVBoxLayout()
+        sl.setSpacing(4)
 
-        row1 = QHBoxLayout()
-        row1.addWidget(QLabel("纸张类别:"))
-        self.combo_category = QComboBox()
-        self.combo_category.addItems(["ISO216", "ANSI", "NorthAmerican"])
-        row1.addWidget(self.combo_category)
-        paper_layout.addLayout(row1)
+        sl.addWidget(QLabel("自动预设:"))
+        preset_row = QHBoxLayout()
+        self.btn_half_v = QPushButton("垂直二分")
+        self.btn_half_h = QPushButton("水平二分")
+        self.btn_quarter = QPushButton("四等分")
+        preset_row.addWidget(self.btn_half_v)
+        preset_row.addWidget(self.btn_half_h)
+        preset_row.addWidget(self.btn_quarter)
+        sl.addLayout(preset_row)
 
-        row2 = QHBoxLayout()
-        row2.addWidget(QLabel("纸张大小:"))
-        self.combo_paper = QComboBox()
-        row2.addWidget(self.combo_paper)
-        paper_layout.addLayout(row2)
+        sl.addWidget(QLabel("手动添加:"))
+        manual_row = QHBoxLayout()
+        self.btn_add_v = QPushButton("+ 竖线")
+        self.btn_add_h = QPushButton("+ 横线")
+        manual_row.addWidget(self.btn_add_v)
+        manual_row.addWidget(self.btn_add_h)
+        sl.addLayout(manual_row)
 
-        row3 = QHBoxLayout()
-        row3.addWidget(QLabel("边距 (mm):"))
-        self.spin_margin = QDoubleSpinBox()
-        self.spin_margin.setRange(0.0, 100.0)
-        self.spin_margin.setValue(10.0)
-        self.spin_margin.setSingleStep(1.0)
-        row3.addWidget(self.spin_margin)
-        paper_layout.addLayout(row3)
+        sl.addWidget(QLabel("提示: 拖拽切割线可微调位置"))
+        split_group.setLayout(sl)
+        layout.addWidget(split_group)
 
-        row4 = QHBoxLayout()
-        row4.addWidget(QLabel("重叠 (mm):"))
-        self.spin_overlap = QDoubleSpinBox()
-        self.spin_overlap.setRange(0.0, 100.0)
-        self.spin_overlap.setValue(5.0)
-        self.spin_overlap.setSingleStep(1.0)
-        row4.addWidget(self.spin_overlap)
-        paper_layout.addLayout(row4)
+        order_group = QGroupBox("排序方式")
+        ol = QVBoxLayout()
+        self.check_auto_order = QCheckBox("自动顺序")
+        self.check_auto_order.setChecked(True)
+        ol.addWidget(self.check_auto_order)
+        ol.addWidget(QLabel("或: 手动模式下点击预览图块标记顺序"))
+        self.btn_reset_order = QPushButton("重置顺序")
+        ol.addWidget(self.btn_reset_order)
+        order_group.setLayout(ol)
+        layout.addWidget(order_group)
 
-        paper_group.setLayout(paper_layout)
-        layout.addWidget(paper_group)
-
-        bottom_layout = QVBoxLayout()
-        self.btn_preview = QPushButton("生成预览")
-        bottom_layout.addWidget(self.btn_preview)
-
-        self.btn_split = QPushButton("开始切分")
-        bottom_layout.addWidget(self.btn_split)
-
-        layout.addLayout(bottom_layout)
         layout.addStretch()
+
+        self.btn_export = QPushButton("切分并导出")
+        self.btn_export.setMinimumHeight(36)
+        self.btn_export.setStyleSheet("QPushButton { font-weight: bold; background-color: #0078D4; color: white; }")
+        layout.addWidget(self.btn_export)
+
         return panel
 
-    def _create_right_panel(self) -> QWidget:
+    def _create_preview_panel(self) -> QWidget:
         panel = QWidget()
         layout = QVBoxLayout(panel)
-
-        info_group = QGroupBox("文档信息")
-        info_layout = QVBoxLayout()
-        self.label_info = QLabel("尚未加载文档")
-        info_layout.addWidget(self.label_info)
-        info_group.setLayout(info_layout)
-        layout.addWidget(info_group)
-
-        result_group = QGroupBox("切分结果")
-        result_layout = QVBoxLayout()
-        self.label_result = QLabel("尚未计算布局")
-        result_layout.addWidget(self.label_result)
-        result_group.setLayout(result_layout)
-        layout.addWidget(result_group)
-
-        layout.addStretch()
+        layout.setContentsMargins(0, 0, 0, 0)
+        self.preview = PreviewWidget()
+        layout.addWidget(self.preview)
         return panel
 
     def _connect_signals(self) -> None:
         self.btn_open.clicked.connect(self._on_open)
-        self.btn_preview.clicked.connect(self._on_preview)
-        self.btn_split.clicked.connect(self._on_split)
+        self.page_list.currentRowChanged.connect(self._on_page_selected)
 
-        self.combo_category.currentTextChanged.connect(self._on_category_changed)
+        self.btn_half_v.clicked.connect(lambda: self._vm.apply_split_preset("half_v"))
+        self.btn_half_h.clicked.connect(lambda: self._vm.apply_split_preset("half_h"))
+        self.btn_quarter.clicked.connect(lambda: self._vm.apply_split_preset("quarter"))
+
+        self.btn_add_v.clicked.connect(self._vm.add_vertical_line)
+        self.btn_add_h.clicked.connect(self._vm.add_horizontal_line)
+
+        self.check_auto_order.toggled.connect(self._on_order_mode_changed)
+        self.btn_reset_order.clicked.connect(self._on_reset_order)
+
+        self.btn_export.clicked.connect(self._on_export)
+
+        self.preview.line_moved_signal.connect(self._vm.move_line)
+        self.preview.tile_clicked_signal.connect(self._on_tile_clicked)
 
         self._vm.document_loaded_signal.connect(self._on_document_loaded)
-        self._vm.layout_calculated_signal.connect(self._on_layout_calculated)
-        self._vm.error_signal.connect(self._on_error)
+        self._vm.preview_pixmap_ready_signal.connect(self._on_preview_ready)
+        self._vm.split_lines_changed_signal.connect(self.preview.set_split_lines)
+        self._vm.error_signal.connect(lambda m: QMessageBox.critical(self, "错误", m))
         self._vm.progress_signal.connect(self.status_bar.showMessage)
 
     def _on_open(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
-            self, "打开 PDF", "", "PDF Files (*.pdf);;All Files (*)"
+            self, "打开文件", "",
+            "PDF/Images (*.pdf *.png *.jpg *.jpeg *.bmp *.tiff);;All Files (*)"
         )
         if path:
             self._vm.load_document(path)
 
-    def _on_category_changed(self, category: str) -> None:
-        papers = self._vm.list_papers(category)
-        self.combo_paper.clear()
-        for p in papers:
-            self.combo_paper.addItem(p.name)
-
-    def _on_preview(self) -> None:
-        idx = self.page_list.currentRow()
-        if idx < 0:
-            QMessageBox.warning(self, "提示", "请先选择一个页面")
-            return
-        config_updates = {
-            "paper_name": self.combo_paper.currentText(),
-            "paper_category": self.combo_category.currentText(),
-            "margin_mm": self.spin_margin.value(),
-            "overlap_mm": self.spin_overlap.value(),
-        }
-        self._vm.update_config(**config_updates)
-        self._vm.calculate_layout(idx)
-
-    def _on_split(self) -> None:
-        QMessageBox.information(self, "提示", "切分功能将在后续版本中实现")
+    def _on_page_selected(self, index: int) -> None:
+        if index >= 0:
+            self._vm.select_page(index)
+            self._vm.render_page_preview(index)
 
     def _on_document_loaded(self, doc: DocumentDTO) -> None:
+        self.page_list.blockSignals(True)
         self.page_list.clear()
         for page in doc.pages:
             orientation = "L" if page.is_landscape else "P"
-            self.page_list.addItem(f"第 {page.index + 1} 页 ({page.width_pt:.0f}x{page.height_pt:.0f}pt {orientation})")
-        self.label_info.setText(
-            f"文件: {doc.filename}\n页数: {doc.page_count}\n标题: {doc.title or '无'}"
-        )
-        self.combo_paper.clear()
-        papers = self._vm.list_papers("ISO216")
-        for p in papers:
-            self.combo_paper.addItem(p.name)
+            self.page_list.addItem(
+                f"第 {page.index + 1} 页 ({page.width_pt:.0f}x{page.height_pt:.0f}pt {orientation})"
+            )
+        self.page_list.setCurrentRow(0)
+        self.page_list.blockSignals(False)
+        self._vm.render_page_preview(0)
 
-    def _on_layout_calculated(self, result: LayoutResultDTO) -> None:
-        tiles_info = "\n".join(
-            f"  图块 {t.tile_index}: 行={t.row} 列={t.col} "
-            f"区域=({t.source_x0:.0f},{t.source_y0:.0f})-({t.source_x1:.0f},{t.source_y1:.0f})"
-            for t in result.tiles[:10]
-        )
-        if result.total_tiles > 10:
-            tiles_info += f"\n  ... (共 {result.total_tiles} 个图块)"
-        self.label_result.setText(
-            f"布局: {result.rows} 行 x {result.cols} 列, 共 {result.total_tiles} 个图块\n{tiles_info}"
-        )
+    def _on_preview_ready(self, img_data: bytes) -> None:
+        pixmap = QPixmap()
+        pixmap.loadFromData(img_data, "PNG")
+        self.preview.set_page_image(pixmap)
+        page = self._vm.current_page_info
+        if page:
+            self.label_page_info.setText(
+                f"页面 {page.index + 1}: {page.width_pt:.0f} x {page.height_pt:.0f} pt"
+            )
 
-    def _on_error(self, message: str) -> None:
-        QMessageBox.critical(self, "错误", message)
+    def _on_order_mode_changed(self, checked: bool) -> None:
+        if checked:
+            self._vm.reset_order()
+            self.preview.clear_order()
+
+    def _on_tile_clicked(self, tile_index: int) -> None:
+        if self.check_auto_order.isChecked():
+            return
+        order = self.preview.get_order_sequence()
+        self._vm.set_tile_order(order)
+        self.status_bar.showMessage(f"图块顺序: {[i + 1 for i in order]}")
+
+    def _on_reset_order(self) -> None:
+        self._vm.reset_order()
+        self.preview.clear_order()
+        self.status_bar.showMessage("排序已重置为自动")
+
+    def _on_export(self) -> None:
+        QMessageBox.information(self, "提示", "导出功能将在后续版本中实现")
