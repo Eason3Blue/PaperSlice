@@ -238,7 +238,7 @@ class MainWindow(QMainWindow):
 
     def _on_preview_ready(self, img_data: bytes) -> None:
         pixmap = QPixmap()
-        pixmap.loadFromData(img_data, "PNG")
+        pixmap.loadFromData(img_data)
         self.preview.set_page_image(pixmap)
         self._vm.refresh_preview_state()
         page = self._vm.current_page_info
