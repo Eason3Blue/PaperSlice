@@ -169,6 +169,23 @@ python -m pdfsplitter.main
 pytest tests/ -v
 ```
 
+### 打包为 exe
+
+使用 PyInstaller 打包为单文件 Windows 可执行程序：
+
+```bash
+pip install pyinstaller
+python build.py
+```
+
+产物位于 `dist/PaperSlice.exe`。图标取自 `resources/icon/icon.ico`。
+
+如需清理上次构建缓存:
+
+```bash
+python build.py --clean
+```
+
 ### 依赖
 
 ```
