@@ -1,4 +1,7 @@
-# PaperSlice — PDF Poster Splitter
+<h1>
+  <img src="resources/icon/icon.png" width="185" height="185" style="float: right;">
+  PaperSlice — PDF Poster Splitter
+</h1>
 
 将大型 PDF 页面（A0/A1/A2/A3 等）智能切分为可打印的标准纸张（A4/Letter 等），支持交互式分割线、手动排序、批量导出。
 
