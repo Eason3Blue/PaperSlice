@@ -35,7 +35,7 @@ def build() -> None:
     cmd = [
         sys.executable, "-m", "PyInstaller",
         "--name", APP_NAME,
-        "--onefile",
+        "--onedir",
         "--windowed",
         "--clean",
         "--add-data", f"resources{os.pathsep}resources",
