@@ -118,35 +118,78 @@ class MainViewModel(QObject):
         if not restored:
             self.order_reset_signal.emit()
 
-    def apply_split_preset(self, preset: str) -> None:
+    def apply_split_preset(self, preset: str, apply_to_all: bool = False) -> None:
         page = self.current_page_info
         if page is None:
             return
+
+        def _make_lines(p: PageInfoDTO) -> SplitLines:
+            if preset == "half_v":
+                return SplitLines.halved_vertical(p.width_pt)
+            elif preset == "half_h":
+                return SplitLines.halved_horizontal(p.height_pt)
+            elif preset == "quarter":
+                return SplitLines.quartered(p.width_pt, p.height_pt)
+            return SplitLines.empty()
+
+        if apply_to_all and self._document:
+            for page_idx in range(self._document.page_count):
+                p = self._document.pages[page_idx]
+                sl = _make_lines(p)
+                self._page_states[page_idx] = self._make_page_state(sl)
+            self._split_lines = _make_lines(page)
+        else:
+            self._split_lines = _make_lines(page)
+
         self._clear_order()
-        if preset == "half_v":
-            self._split_lines = SplitLines.halved_vertical(page.width_pt)
-        elif preset == "half_h":
-            self._split_lines = SplitLines.halved_horizontal(page.height_pt)
-        elif preset == "quarter":
-            self._split_lines = SplitLines.quartered(page.width_pt, page.height_pt)
         self._mark_dirty()
         self._update_split_lines_preview()
 
-    def add_vertical_line(self) -> None:
+    def add_vertical_line(self, apply_to_all: bool = False) -> None:
         page = self.current_page_info
         if page is None:
             return
-        center = page.width_pt / 2.0
-        self._split_lines = self._split_lines.with_vertical(center)
+
+        if apply_to_all and self._document:
+            self._save_current_page_state()
+            for page_idx in range(self._document.page_count):
+                p = self._document.pages[page_idx]
+                center = p.width_pt / 2.0
+                existing = self._page_states.get(page_idx, dict(self._empty_page_state()))
+                verts = sorted([*existing["verticals"], center])
+                existing["verticals"] = verts
+                existing["order_mode"] = "auto"
+                existing["order_indices"] = []
+                self._page_states[page_idx] = existing
+            self._split_lines = self._split_lines.with_vertical(page.width_pt / 2.0)
+        else:
+            self._split_lines = self._split_lines.with_vertical(page.width_pt / 2.0)
+
+        self._clear_order()
         self._mark_dirty()
         self._update_split_lines_preview()
 
-    def add_horizontal_line(self) -> None:
+    def add_horizontal_line(self, apply_to_all: bool = False) -> None:
         page = self.current_page_info
         if page is None:
             return
-        center = page.height_pt / 2.0
-        self._split_lines = self._split_lines.with_horizontal(center)
+
+        if apply_to_all and self._document:
+            self._save_current_page_state()
+            for page_idx in range(self._document.page_count):
+                p = self._document.pages[page_idx]
+                center = p.height_pt / 2.0
+                existing = self._page_states.get(page_idx, dict(self._empty_page_state()))
+                horiz = sorted([*existing["horizontals"], center])
+                existing["horizontals"] = horiz
+                existing["order_mode"] = "auto"
+                existing["order_indices"] = []
+                self._page_states[page_idx] = existing
+            self._split_lines = self._split_lines.with_horizontal(page.height_pt / 2.0)
+        else:
+            self._split_lines = self._split_lines.with_horizontal(page.height_pt / 2.0)
+
+        self._clear_order()
         self._mark_dirty()
         self._update_split_lines_preview()
 
@@ -161,7 +204,10 @@ class MainViewModel(QObject):
         self._mark_dirty()
         self._update_split_lines_preview()
 
-    def clear_split_lines(self) -> None:
+    def clear_split_lines(self, apply_to_all: bool = False) -> None:
+        if apply_to_all and self._document:
+            self._save_current_page_state()
+            self._page_states.clear()
         self._clear_order()
         self._split_lines = SplitLines.empty()
         self._mark_dirty()
@@ -428,6 +474,19 @@ class MainViewModel(QObject):
         self._has_manual_order = False
         self._tile_order = TileOrder.auto(max(1, self._split_lines.tile_count))
         self.order_reset_signal.emit()
+
+    @staticmethod
+    def _empty_page_state() -> dict[str, Any]:
+        return {"verticals": [], "horizontals": [], "order_mode": "auto", "order_indices": []}
+
+    @staticmethod
+    def _make_page_state(sl: SplitLines) -> dict[str, Any]:
+        return {
+            "verticals": list(sl.verticals),
+            "horizontals": list(sl.horizontals),
+            "order_mode": "auto",
+            "order_indices": [],
+        }
 
     def _mark_dirty(self) -> None:
         if not self._is_dirty:

@@ -63,6 +63,10 @@ class MainWindow(QMainWindow):
         self.setStatusBar(self.status_bar)
         self.status_bar.showMessage("就绪 - 请打开 PDF 文件")
 
+        github_label = QLabel('<a href="https://github.com/Eason3Blue/PaperSlice" style="color: #888;">项目主页</a>')
+        github_label.setOpenExternalLinks(True)
+        self.status_bar.addPermanentWidget(github_label)
+
     def _create_left_panel(self) -> QWidget:
         panel = QWidget()
         layout = QVBoxLayout(panel)
@@ -107,7 +111,14 @@ class MainWindow(QMainWindow):
         sl = QVBoxLayout()
         sl.setSpacing(4)
 
-        sl.addWidget(QLabel("自动预设:"))
+        preset_label_row = QHBoxLayout()
+        preset_label_row.addWidget(QLabel("自动预设:"))
+        self.check_preset_all = QCheckBox("应用到所有页")
+        self.check_preset_all.setChecked(True)
+        preset_label_row.addWidget(self.check_preset_all)
+        preset_label_row.addStretch()
+        sl.addLayout(preset_label_row)
+
         preset_row = QHBoxLayout()
         self.btn_half_v = QPushButton("垂直二分")
         self.btn_half_h = QPushButton("水平二分")
@@ -117,7 +128,14 @@ class MainWindow(QMainWindow):
         preset_row.addWidget(self.btn_quarter)
         sl.addLayout(preset_row)
 
-        sl.addWidget(QLabel("手动添加:"))
+        manual_label_row = QHBoxLayout()
+        manual_label_row.addWidget(QLabel("手动添加:"))
+        self.check_manual_all = QCheckBox("应用到所有页")
+        self.check_manual_all.setChecked(False)
+        manual_label_row.addWidget(self.check_manual_all)
+        manual_label_row.addStretch()
+        sl.addLayout(manual_label_row)
+
         manual_row = QHBoxLayout()
         self.btn_add_v = QPushButton("+ 竖线")
         self.btn_add_h = QPushButton("+ 横线")
@@ -173,13 +191,13 @@ class MainWindow(QMainWindow):
         self.combo_category.currentTextChanged.connect(self._on_paper_category_changed)
         self.page_list.currentRowChanged.connect(self._on_page_selected)
 
-        self.btn_half_v.clicked.connect(lambda: self._vm.apply_split_preset("half_v"))
-        self.btn_half_h.clicked.connect(lambda: self._vm.apply_split_preset("half_h"))
-        self.btn_quarter.clicked.connect(lambda: self._vm.apply_split_preset("quarter"))
+        self.btn_half_v.clicked.connect(lambda: self._vm.apply_split_preset("half_v", self.check_preset_all.isChecked()))
+        self.btn_half_h.clicked.connect(lambda: self._vm.apply_split_preset("half_h", self.check_preset_all.isChecked()))
+        self.btn_quarter.clicked.connect(lambda: self._vm.apply_split_preset("quarter", self.check_preset_all.isChecked()))
 
-        self.btn_add_v.clicked.connect(self._vm.add_vertical_line)
-        self.btn_add_h.clicked.connect(self._vm.add_horizontal_line)
-        self.btn_clear_lines.clicked.connect(self._vm.clear_split_lines)
+        self.btn_add_v.clicked.connect(lambda: self._vm.add_vertical_line(self.check_manual_all.isChecked()))
+        self.btn_add_h.clicked.connect(lambda: self._vm.add_horizontal_line(self.check_manual_all.isChecked()))
+        self.btn_clear_lines.clicked.connect(lambda: self._vm.clear_split_lines(self.check_manual_all.isChecked()))
 
         self.check_auto_order.toggled.connect(self._on_order_mode_changed)
         self.btn_reset_order.clicked.connect(self._on_reset_order)
