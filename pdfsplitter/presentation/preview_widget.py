@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Qt, QPointF, QRectF, Signal
@@ -24,6 +25,8 @@ from PySide6.QtWidgets import (
 )
 
 logger = logging.getLogger(__name__)
+
+_READY_PNG = Path(__file__).resolve().parent.parent.parent / "resources" / "images" / "ready.png"
 
 LINE_COLOR = QColor(0, 120, 212)
 LINE_HOVER_COLOR = QColor(200, 50, 50)
@@ -157,10 +160,13 @@ class PreviewWidget(QGraphicsView):
     - 渲染页面截图
     - 显示可拖拽的切割线
     - 点击图块指定输出顺序
+    - 拖拽 PDF 文件直接打开
+    - 未加载文档时显示占位图
     """
 
     line_moved_signal = Signal(str, int, float)
     tile_clicked_signal = Signal(int)
+    file_dropped_signal = Signal(str)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -172,7 +178,7 @@ class PreviewWidget(QGraphicsView):
         self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.setStyleSheet("background-color: #2d2d2d; border: none;")
+        self.setStyleSheet("background-color: #181a1f; border: none;")
 
         self._pixmap_item: QGraphicsPixmapItem | None = None
         self._vertical_lines: list[_DraggableLine] = []
@@ -180,7 +186,57 @@ class PreviewWidget(QGraphicsView):
         self._tile_overlays: list[_TileOverlay] = []
         self._order_sequence: list[int] = []
 
+        self._ready_pixmap: QPixmap | None = None
+        self._ready_item: QGraphicsPixmapItem | None = None
+
         self.setMouseTracking(True)
+        self.setAcceptDrops(True)
+
+        self._load_placeholder()
+
+    def _load_placeholder(self) -> None:
+        if _READY_PNG.exists():
+            self._ready_pixmap = QPixmap(str(_READY_PNG))
+            self._ready_item = QGraphicsPixmapItem(self._ready_pixmap)
+            self._ready_item.setZValue(0)
+            self._scene.addItem(self._ready_item)
+            self._scene.setSceneRect(QRectF(self._ready_pixmap.rect()))
+            self._center_placeholder()
+        else:
+            logger.warning("Placeholder image not found: %s", _READY_PNG)
+
+    def _center_placeholder(self) -> None:
+        if self._ready_item is None:
+            return
+        scene_rect = self._ready_pixmap.rect()
+        self._scene.setSceneRect(QRectF(scene_rect))
+        self.fitInView(QRectF(scene_rect), Qt.AspectRatioMode.KeepAspectRatio)
+
+    def dragEnterEvent(self, event) -> None:
+        if event.mimeData().hasUrls():
+            for url in event.mimeData().urls():
+                path = url.toLocalFile()
+                if path.lower().endswith(".pdf"):
+                    event.acceptProposedAction()
+                    return
+        event.ignore()
+
+    def dragMoveEvent(self, event) -> None:
+        if event.mimeData().hasUrls():
+            for url in event.mimeData().urls():
+                if url.toLocalFile().lower().endswith(".pdf"):
+                    event.acceptProposedAction()
+                    return
+        event.ignore()
+
+    def dropEvent(self, event) -> None:
+        if event.mimeData().hasUrls():
+            for url in event.mimeData().urls():
+                path = url.toLocalFile()
+                if path.lower().endswith(".pdf"):
+                    self.file_dropped_signal.emit(path)
+                    return
+        event.ignore()
 
     def set_page_image(self, pixmap: QPixmap) -> None:
         """设置页面预览图."""
@@ -189,6 +245,8 @@ class PreviewWidget(QGraphicsView):
         self._horizontal_lines.clear()
         self._tile_overlays.clear()
         self._order_sequence.clear()
+        self._ready_item = None
+        self._ready_pixmap = None
         self._pixmap_item = QGraphicsPixmapItem(pixmap)
         self._pixmap_item.setZValue(0)
         self._scene.addItem(self._pixmap_item)
@@ -349,3 +407,5 @@ class PreviewWidget(QGraphicsView):
         super().resizeEvent(event)
         if self._pixmap_item:
             self.fitInView(self._scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
+        elif self._ready_item:
+            self._center_placeholder()

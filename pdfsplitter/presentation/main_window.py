@@ -189,6 +189,7 @@ class MainWindow(QMainWindow):
 
         self.preview.line_moved_signal.connect(self._vm.move_line)
         self.preview.tile_clicked_signal.connect(self._on_tile_clicked)
+        self.preview.file_dropped_signal.connect(self._on_file_dropped)
 
         self._vm.document_loaded_signal.connect(self._on_document_loaded)
         self._vm.preview_pixmap_ready_signal.connect(self._on_preview_ready)
@@ -206,6 +207,9 @@ class MainWindow(QMainWindow):
         )
         if path:
             self._vm.load_document(path)
+
+    def _on_file_dropped(self, path: str) -> None:
+        self._vm.load_document(path)
 
     def _on_page_selected(self, index: int) -> None:
         if index >= 0:
