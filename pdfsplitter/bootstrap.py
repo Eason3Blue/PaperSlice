@@ -11,8 +11,9 @@ import sys
 
 from PySide6.QtWidgets import QApplication
 
-from pdfsplitter.application.repository import DocumentRepository
+from pdfsplitter.application.repository import DocumentRepository, RepositoryRouter
 from pdfsplitter.infrastructure.config import ConfigService
+from pdfsplitter.infrastructure.image_repository import ImageRepository
 from pdfsplitter.infrastructure.logging_config import setup_logging
 from pdfsplitter.infrastructure.mupdf_repository import MuPDFRepository
 from pdfsplitter.presentation.main_viewmodel import MainViewModel
@@ -35,7 +36,10 @@ class App:
         self._qapp.setOrganizationName("PaperSlice")
 
         self.config = ConfigService()
-        self.repository: DocumentRepository = MuPDFRepository()
+        self.repository: RepositoryRouter = RepositoryRouter([
+            MuPDFRepository(),
+            ImageRepository(),
+        ])
         self.viewmodel = MainViewModel(self.repository, self.config)
         self.main_window = MainWindow(self.viewmodel)
 

@@ -25,7 +25,7 @@ class FakeDocumentRepository(DocumentRepository):
         return Document(path=path, pages=(page,), title="Test", author="Tester")
 
     def supports(self, path: Path) -> bool:
-        return path.suffix.lower() == ".pdf"
+        return path.suffix.lower() in (".pdf", ".png", ".jpg", ".jpeg", ".bmp", ".tiff")
 
 
 class TestLoadDocumentUseCase:

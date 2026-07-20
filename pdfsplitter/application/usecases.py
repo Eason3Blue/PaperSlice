@@ -67,6 +67,7 @@ class LoadDocumentUseCase:
             filename=doc.filename,
             page_count=doc.page_count,
             pages=page_infos,
+            source_paths=doc.source_paths,
             title=doc.title,
             author=doc.author,
         )

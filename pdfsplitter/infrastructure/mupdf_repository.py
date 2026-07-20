@@ -1,4 +1,4 @@
-"""MuPDF Repository - 基于 PyMuPDF 的 DocumentRepository 实现."""
+"""MuPDF Repository - 基于 PyMuPDF 的 PDF 文档仓库实现."""
 
 from __future__ import annotations
 
@@ -14,7 +14,10 @@ logger = logging.getLogger(__name__)
 
 
 class MuPDFRepository(DocumentRepository):
-    """基于 PyMuPDF (fitz) 的文档仓库实现."""
+    """基于 PyMuPDF (fitz) 的 PDF 文档仓库实现.
+
+    仅处理 PDF 格式, 图片由 ImageRepository 负责.
+    """
 
     SUPPORTED_EXTENSIONS: tuple[str, ...] = (".pdf",)
 

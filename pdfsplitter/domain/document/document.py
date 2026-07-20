@@ -9,17 +9,19 @@ from pdfsplitter.domain.document.page import Page
 
 @dataclass(frozen=True)
 class Document:
-    """不可变的 PDF 文档领域对象.
+    """不可变的文档领域对象.
 
     Attributes:
-        path: 文档文件路径.
+        path: 文档主文件路径 (单文件时即为源文件, 多文件时为第一个).
         pages: 页面列表.
+        source_paths: 所有源文件路径 (单文件时为空或等于 (path,)).
         title: 文档标题 (可选).
         author: 作者 (可选).
     """
 
     path: Path
     pages: tuple[Page, ...] = field(default_factory=tuple)
+    source_paths: tuple[Path, ...] = field(default_factory=tuple)
     title: str | None = None
     author: str | None = None
 

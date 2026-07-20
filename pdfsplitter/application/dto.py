@@ -64,6 +64,7 @@ class DocumentDTO:
     filename: str
     page_count: int
     pages: tuple[PageInfoDTO, ...]
+    source_paths: tuple[Path, ...] = field(default_factory=tuple)
     title: str | None = None
     author: str | None = None
 

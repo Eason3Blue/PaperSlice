@@ -35,6 +35,8 @@ class PdfSplitter:
         order: TileOrder,
         target_size_mm: tuple[float, float],
         config: ExportConfig,
+        source_path_override: Path | None = None,
+        local_page_index: int | None = None,
     ) -> ExportResult:
         """执行 PDF 切分并导出.
 
@@ -55,7 +57,8 @@ class PdfSplitter:
         """
         import fitz
 
-        src_path = source_document.path
+        src_path = source_path_override or source_document.path
+        actual_page = local_page_index if local_page_index is not None else page_index
         source_page = source_document.get_page(page_index)
 
         tw_mm, th_mm = target_size_mm
@@ -66,11 +69,11 @@ class PdfSplitter:
 
         if config.format == ExportFormat.PDF_SINGLE:
             output_paths = self._split_to_single_pdf(
-                src_pdf, source_page.index, target_w, target_h, grid, order, config,
+                src_pdf, actual_page, target_w, target_h, grid, order, config,
             )
         else:
             output_paths = self._split_to_multiple_pdfs(
-                src_pdf, source_page.index, target_w, target_h, grid, order, config,
+                src_pdf, actual_page, target_w, target_h, grid, order, config,
             )
 
         src_pdf.close()
@@ -101,13 +104,15 @@ class PdfSplitter:
         target_w = tw_mm * MM_TO_PT
         target_h = th_mm * MM_TO_PT
 
-        src_pdf = fitz.open(str(source_document.path))
         out_pdf = fitz.open()
-
         total_output = 0
+
         for page_index, split_lines, order in page_configs:
+            src_path = self._resolve_source_path(source_document, page_index)
+            src_pdf = fitz.open(str(src_path))
+            local_index = self._resolve_local_page_index(source_document, page_index)
+            src_page = src_pdf.load_page(local_index)
             engine = LayoutEngine()
-            src_page = src_pdf.load_page(page_index)
             grid = engine.calculate_from_lines(
                 Size(src_page.rect.width, src_page.rect.height), split_lines,
             )
@@ -124,12 +129,38 @@ class PdfSplitter:
                     self._draw_page_number(out_page, total_output, 0, target_w, target_h)
                 else:
                     total_output += 1
+            src_pdf.close()
 
         out_pdf.save(str(config.output_path))
         out_pdf.close()
-        src_pdf.close()
         logger.info("PdfSplitter: exported %d tiles from %d pages → %s", total_output, len(page_configs), config.output_path)
         return ExportResult(output_paths=(config.output_path,), tile_count=total_output)
+
+    @staticmethod
+    def _resolve_source_path(source_document: Document, page_index: int) -> Path:
+        paths = source_document.source_paths
+        if paths and len(paths) == source_document.page_count:
+            return paths[page_index]
+        return source_document.path
+
+    @staticmethod
+    def _resolve_local_page_index(source_document: Document, page_index: int) -> int:
+        paths = source_document.source_paths
+        if not paths or len(paths) != source_document.page_count:
+            return page_index
+        import fitz
+        offset = 0
+        for sp in paths:
+            try:
+                doc = fitz.open(str(sp))
+                count = doc.page_count
+                doc.close()
+                if page_index < offset + count:
+                    return page_index - offset
+                offset += count
+            except Exception:
+                pass
+        return page_index
 
     def _split_to_single_pdf(
         self,
@@ -210,6 +241,7 @@ class PdfSplitter:
         """将源页面的一个图块复制到目标页面.
 
         将 source_rect 区域缩放并居中放置在目标页面上.
+        对 PDF 源使用 show_pdf_page (保留矢量), 对图片源使用 pixmap 渲染.
         """
         import fitz
 
@@ -230,7 +262,12 @@ class PdfSplitter:
         clip_rect = fitz.Rect(source_rect.x0, source_rect.y0, source_rect.x1, source_rect.y1)
         target_rect = fitz.Rect(offset_x, offset_y, offset_x + placed_w, offset_y + placed_h)
 
-        out_page.show_pdf_page(target_rect, src_pdf, src_page.number, clip=clip_rect)
+        if src_pdf.is_pdf:
+            out_page.show_pdf_page(target_rect, src_pdf, src_page.number, clip=clip_rect)
+        else:
+            mat = fitz.Matrix(scale, scale)
+            pix = src_page.get_pixmap(matrix=mat, clip=clip_rect)
+            out_page.insert_image(target_rect, pixmap=pix)
 
     @staticmethod
     def _draw_cut_lines(page, width: float, height: float) -> None:

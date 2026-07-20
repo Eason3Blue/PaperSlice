@@ -219,12 +219,15 @@ class MainWindow(QMainWindow):
         self._vm.progress_signal.connect(self.status_bar.showMessage)
 
     def _on_open(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(
+        paths, _ = QFileDialog.getOpenFileNames(
             self, "打开文件", "",
             "PDF/Images (*.pdf *.png *.jpg *.jpeg *.bmp *.tiff);;All Files (*)"
         )
-        if path:
-            self._vm.load_document(path)
+        if paths:
+            if len(paths) == 1:
+                self._vm.load_document(paths[0])
+            else:
+                self._vm.load_documents(paths)
 
     def _on_file_dropped(self, path: str) -> None:
         self._vm.load_document(path)
@@ -340,7 +343,7 @@ class MainWindow(QMainWindow):
         if self._vm.document is None:
             QMessageBox.warning(self, "提示", "请先打开文件")
             return
-        default_name = Path(self._vm.document.filename).stem + ".ppslc"
+        default_name = self._vm.default_project_name() + ".ppslc"
         path, _ = QFileDialog.getSaveFileName(
             self, "保存项目", default_name,
             "PaperSlice Project (*.ppslc);;All Files (*)"

@@ -41,6 +41,8 @@ class ExportUseCase:
         order: TileOrder,
         target_size_mm: tuple[float, float],
         config: ExportConfig,
+        source_path_override: Path | None = None,
+        local_page_index: int | None = None,
     ) -> ExportResult:
         """执行导出.
 
@@ -74,6 +76,8 @@ class ExportUseCase:
             order=order,
             target_size_mm=target_size_mm,
             config=config,
+            source_path_override=source_path_override,
+            local_page_index=local_page_index,
         )
 
     def execute_all(
@@ -82,19 +86,21 @@ class ExportUseCase:
         page_configs: dict[int, tuple[SplitLines, TileOrder]],
         target_size_mm: tuple[float, float],
         output_path: Path,
+        source_document: Document | None = None,
     ) -> ExportResult:
         """导出多个页面到单个 PDF.
 
         Args:
-            source_path: 源文件路径.
+            source_path: 源文件路径 (单文件场景).
             page_configs: {page_index: (SplitLines, TileOrder)}.
             target_size_mm: 目标纸张 (宽, 高) mm.
             output_path: 输出文件路径.
+            source_document: 可选的预加载源文档 (多文件场景, 含 source_paths).
 
         Returns:
             ExportResult.
         """
-        source_doc = self._repository.load(source_path)
+        source_doc = source_document if source_document is not None else self._repository.load(source_path)
         grouped: list[tuple[int, SplitLines, TileOrder]] = []
         for page_idx in sorted(page_configs.keys()):
             sl, order = page_configs[page_idx]

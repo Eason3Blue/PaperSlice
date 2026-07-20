@@ -11,7 +11,7 @@ from PySide6.QtCore import QObject, Signal
 
 from pdfsplitter.application.dto import DocumentDTO, PageInfoDTO, PosterSplitConfigDTO
 from pdfsplitter.application.export_usecase import ExportUseCase
-from pdfsplitter.application.repository import DocumentRepository
+from pdfsplitter.application.repository import DocumentRepository, RepositoryRouter
 from pdfsplitter.application.usecases import PosterSplitUseCase
 from pdfsplitter.domain.export.export_config import ExportConfig, ExportFormat, ExportResult
 from pdfsplitter.domain.layout.layout_engine import LayoutEngine
@@ -37,7 +37,7 @@ class MainViewModel(QObject):
     error_signal = Signal(str)
     progress_signal = Signal(str)
 
-    def __init__(self, repository: DocumentRepository, config: ConfigService) -> None:
+    def __init__(self, repository: RepositoryRouter, config: ConfigService) -> None:
         super().__init__()
         self._repository = repository
         self._config = config
@@ -79,11 +79,25 @@ class MainViewModel(QObject):
         return self._project_path
 
     def load_document(self, path: str) -> None:
-        file_path = Path(path)
+        self.load_documents([path])
+
+    def load_documents(self, paths: list[str]) -> None:
+        file_paths = [Path(p) for p in paths]
+        if not file_paths:
+            return
         try:
-            self.progress_signal.emit(f"加载中: {file_path.name} ...")
-            doc = self._usecase.load_document(file_path)
-            self._document = doc
+            names = ", ".join(p.name for p in file_paths[:3])
+            if len(file_paths) > 3:
+                names += f" ... 等 {len(file_paths)} 个文件"
+            self.progress_signal.emit(f"加载中: {names} ...")
+
+            if len(file_paths) == 1:
+                domain_doc = self._repository.load(file_paths[0])
+            else:
+                domain_doc = self._repository.load_multiple(file_paths)
+
+            dto = self._domain_to_dto(domain_doc)
+            self._document = dto
             self._current_page_index = 0
             self._split_lines = SplitLines.empty()
             self._tile_order = TileOrder.auto(1)
@@ -91,15 +105,15 @@ class MainViewModel(QObject):
             self._is_dirty = False
             self._page_states.clear()
             self._project_path = None
-            self.document_loaded_signal.emit(doc)
-            self.progress_signal.emit(f"已加载: {file_path.name} ({doc.page_count} 页)")
+            self.document_loaded_signal.emit(dto)
+            self.progress_signal.emit(f"已加载: {names} ({dto.page_count} 页)")
         except FileNotFoundError:
-            self.error_signal.emit(f"文件不存在: {path}")
+            self.error_signal.emit(f"文件不存在: {paths[0]}")
         except ValueError as e:
             self.error_signal.emit(f"加载失败: {e}")
         except Exception:
             logger.exception("load_document failed")
-            self.error_signal.emit(f"加载文档时发生未知错误: {path}")
+            self.error_signal.emit(f"加载文档时发生未知错误")
 
     def select_page(self, page_index: int) -> None:
         if not self._document or not (0 <= page_index < self._document.page_count):
@@ -234,6 +248,18 @@ class MainViewModel(QObject):
         expected = self._split_lines.tile_count
         return len(self._tile_order.indices) != expected
 
+    def default_project_name(self) -> str:
+        if self._document is None:
+            return "未命名"
+        paths = self._document.source_paths
+        if paths:
+            _image_exts = {".png", ".jpg", ".jpeg", ".bmp", ".tiff"}
+            suffixes = {p.suffix.lower() for p in paths}
+            if suffixes and suffixes.issubset(_image_exts):
+                return "未命名"
+        stem = Path(self._document.filename).stem
+        return stem if stem else "未命名"
+
     def list_papers(self, category: str | None = None) -> list[dict[str, str | float]]:
         """列出可选纸张.
 
@@ -260,6 +286,7 @@ class MainViewModel(QObject):
         data: dict[str, Any] = {
             "version": PROJECT_VERSION,
             "source_path": str(self._document.path) if self._document else "",
+            "source_paths": [str(p) for p in self._document.source_paths] if self._document and self._document.source_paths else [],
             "pages": {},
         }
         page_states = dict(self._page_states)
@@ -295,13 +322,21 @@ class MainViewModel(QObject):
             self.error_signal.emit(f"存档版本 {version} 高于当前支持版本 {PROJECT_VERSION}")
             return
 
-        source_path = data.get("source_path", "")
-        if source_path and Path(source_path).exists():
-            self.progress_signal.emit(f"加载源文件: {Path(source_path).name} ...")
-            self.load_document(source_path)
-        elif source_path:
-            self.error_signal.emit(f"源文件不存在: {source_path}")
-            return
+        saved_paths = data.get("source_paths", [])
+        if saved_paths:
+            existing = [p for p in saved_paths if Path(p).exists()]
+            if existing:
+                self.load_documents(existing)
+            else:
+                self.error_signal.emit("所有源文件均不存在")
+                return
+        else:
+            source_path = data.get("source_path", "")
+            if source_path and Path(source_path).exists():
+                self.load_document(source_path)
+            elif source_path:
+                self.error_signal.emit(f"源文件不存在: {source_path}")
+                return
 
         self._page_states.clear()
         for key, state in data.get("pages", {}).items():
@@ -388,6 +423,8 @@ class MainViewModel(QObject):
         export_uc = ExportUseCase(self._repository)
         try:
             self.progress_signal.emit("正在导出...")
+            source_path = self._get_source_path_for_page(self._current_page_index)
+            local_index = self._get_local_page_index(self._current_page_index)
             result = export_uc.execute(
                 source_path=self._document.path,
                 page_index=self._current_page_index,
@@ -395,6 +432,8 @@ class MainViewModel(QObject):
                 order=self._tile_order,
                 target_size_mm=(paper.size.w, paper.size.h),
                 config=config,
+                source_path_override=source_path,
+                local_page_index=local_index,
             )
             self.progress_signal.emit(
                 f"导出完成: {result.tile_count} 个图块 → {result.output_paths[0]}"
@@ -456,11 +495,13 @@ class MainViewModel(QObject):
         export_uc = ExportUseCase(self._repository)
         try:
             self.progress_signal.emit("正在导出全部页面...")
+            source_doc = self._build_export_source_document()
             result = export_uc.execute_all(
                 source_path=self._document.path,
                 page_configs=page_configs,
                 target_size_mm=(paper.size.w, paper.size.h),
                 output_path=Path(output_path),
+                source_document=source_doc,
             )
             msg = f"导出完成: {result.tile_count} 个图块 → {result.output_paths[0]}"
             if warnings:
@@ -513,11 +554,12 @@ class MainViewModel(QObject):
     def render_page_preview(self, page_index: int) -> None:
         if self._document is None:
             return
-        doc_path = self._document.path
+        source_path = self._get_source_path_for_page(page_index)
         import fitz
         try:
-            pdf = fitz.open(str(doc_path))
-            fitz_page = pdf.load_page(page_index)
+            pdf = fitz.open(str(source_path))
+            local_index = self._get_local_page_index(page_index)
+            fitz_page = pdf.load_page(local_index)
             zoom = 1.5
             mat = fitz.Matrix(zoom, zoom)
             pix = fitz_page.get_pixmap(matrix=mat)
@@ -526,6 +568,77 @@ class MainViewModel(QObject):
             self.preview_pixmap_ready_signal.emit(img_data)
         except Exception:
             logger.exception("render_page_preview failed")
+
+    def _get_source_path_for_page(self, page_index: int) -> Path:
+        if self._document is None:
+            return Path(".")
+        paths = self._document.source_paths
+        if paths and len(paths) == self._document.page_count:
+            return paths[page_index]
+        return self._document.path
+
+    def _get_local_page_index(self, global_index: int) -> int:
+        """将全局页索引转换为源文件内的局部页索引."""
+        if self._document is None:
+            return 0
+        paths = self._document.source_paths
+        if not paths or len(paths) != self._document.page_count:
+            return global_index
+        import fitz
+        offset = 0
+        for sp in paths:
+            try:
+                doc = fitz.open(str(sp))
+                count = doc.page_count
+                doc.close()
+                if global_index < offset + count:
+                    return global_index - offset
+                offset += count
+            except Exception:
+                pass
+        return global_index
+
+    @staticmethod
+    def _domain_to_dto(doc: Document) -> DocumentDTO:
+        """将 Document 领域对象转换为 DocumentDTO.
+
+        Args:
+            doc: 领域 Document.
+
+        Returns:
+            DocumentDTO.
+        """
+        from pdfsplitter.domain.document.document import Document as DomainDocument
+        page_infos = tuple(
+            PageInfoDTO(
+                index=p.index,
+                width_pt=p.width,
+                height_pt=p.height,
+                is_landscape=p.is_landscape,
+                is_portrait=p.is_portrait,
+            )
+            for p in doc.pages
+        )
+        return DocumentDTO(
+            path=doc.path,
+            filename=doc.filename,
+            page_count=doc.page_count,
+            pages=page_infos,
+            source_paths=doc.source_paths,
+            title=doc.title,
+            author=doc.author,
+        )
+
+    def _build_export_source_document(self):
+        """构建导出用的源文档, 多文件场景包含完整 source_paths 映射.
+
+        Returns:
+            领域 Document (含正确 source_paths).
+        """
+        paths = self._document.source_paths if self._document else ()
+        if paths and len(paths) > 1:
+            return self._repository.load_multiple(list(paths))
+        return self._repository.load(self._document.path)
 
     def refresh_preview_state(self) -> None:
         """刷新预览的切割线和排序状态 (用于 set_page_image 清空后恢复)."""

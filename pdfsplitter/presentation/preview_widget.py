@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
 logger = logging.getLogger(__name__)
 
 _READY_PNG = Path(__file__).resolve().parent.parent.parent / "resources" / "images" / "ready.png"
+_DROP_EXTENSIONS = (".pdf", ".png", ".jpg", ".jpeg", ".bmp", ".tiff")
 
 LINE_COLOR = QColor(0, 120, 212)
 LINE_HOVER_COLOR = QColor(200, 50, 50)
@@ -216,7 +217,7 @@ class PreviewWidget(QGraphicsView):
         if event.mimeData().hasUrls():
             for url in event.mimeData().urls():
                 path = url.toLocalFile()
-                if path.lower().endswith(".pdf"):
+                if path.lower().endswith(_DROP_EXTENSIONS):
                     event.acceptProposedAction()
                     return
         event.ignore()
@@ -224,7 +225,7 @@ class PreviewWidget(QGraphicsView):
     def dragMoveEvent(self, event) -> None:
         if event.mimeData().hasUrls():
             for url in event.mimeData().urls():
-                if url.toLocalFile().lower().endswith(".pdf"):
+                if url.toLocalFile().lower().endswith(_DROP_EXTENSIONS):
                     event.acceptProposedAction()
                     return
         event.ignore()
@@ -233,7 +234,7 @@ class PreviewWidget(QGraphicsView):
         if event.mimeData().hasUrls():
             for url in event.mimeData().urls():
                 path = url.toLocalFile()
-                if path.lower().endswith(".pdf"):
+                if path.lower().endswith(_DROP_EXTENSIONS):
                     self.file_dropped_signal.emit(path)
                     return
         event.ignore()
