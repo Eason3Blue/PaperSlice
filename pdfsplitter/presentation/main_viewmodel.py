@@ -759,7 +759,6 @@ class MainViewModel(QObject):
         if dpi == current:
             return
         self._config.set("default_dpi", dpi)
-        self._config.save()
         if self._document and self._current_page_index < self._document.page_count:
             self.render_page_preview(self._current_page_index)
 
