@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 
 from pdfsplitter.application.dto import DocumentDTO, PageFilterDTO, PageListStateDTO
 from pdfsplitter.presentation.main_viewmodel import MainViewModel
+from pdfsplitter.presentation.order_rule_dialog import OrderRuleDialog
 from pdfsplitter.presentation.page_filter_dialog import PageFilterDialog
 from pdfsplitter.presentation.preview_widget import PreviewWidget
 
@@ -195,9 +196,17 @@ class MainWindow(QMainWindow):
         order_group = QGroupBox("排序方式")
         ol = QVBoxLayout()
         ol.setSpacing(4)
-        self.check_auto_order = QCheckBox("自动顺序 (从左到右, 从上到下)")
+        self.check_auto_order = QCheckBox("自动顺序")
         self.check_auto_order.setChecked(False)
         ol.addWidget(self.check_auto_order)
+        auto_rule_row = QHBoxLayout()
+        auto_rule_row.addSpacing(20)
+        self.btn_order_rule = QPushButton("规则")
+        self.btn_order_rule.setFixedWidth(50)
+        self.btn_order_rule.setToolTip("设置自动排序规则")
+        auto_rule_row.addWidget(self.btn_order_rule)
+        auto_rule_row.addStretch()
+        ol.addLayout(auto_rule_row)
         self.label_order_hint = QLabel("手动模式: 点击预览图块标记输出顺序")
         self.label_order_hint.setStyleSheet("color: #888;")
         ol.addWidget(self.label_order_hint)
@@ -297,6 +306,7 @@ class MainWindow(QMainWindow):
 
         self.check_auto_order.toggled.connect(self._on_order_mode_changed)
         self.btn_reset_order.clicked.connect(self._on_reset_order)
+        self.btn_order_rule.clicked.connect(self._on_order_rule)
 
         self.btn_export_page.clicked.connect(self._on_export_page)
         self.btn_export.clicked.connect(self._on_export_all)
@@ -410,6 +420,11 @@ class MainWindow(QMainWindow):
             self.label_page_info.setText(
                 f"页面 {page.index + 1}: {page.width_pt:.0f} x {page.height_pt:.0f} pt"
             )
+
+    def _on_order_rule(self) -> None:
+        dialog = OrderRuleDialog(self._vm.order_rule, self)
+        if dialog.exec() == OrderRuleDialog.DialogCode.Accepted:
+            self._vm.set_order_rule(dialog.result_rule())
 
     def _on_order_mode_changed(self, checked: bool) -> None:
         if checked:

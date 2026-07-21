@@ -18,6 +18,7 @@ from pdfsplitter.domain.export.export_config import ExportConfig, ExportFormat, 
 from pdfsplitter.domain.filter.page_filter import PageFilter
 from pdfsplitter.domain.filter.page_selection import PageSelection
 from pdfsplitter.domain.layout.layout_engine import LayoutEngine
+from pdfsplitter.domain.layout.order_rule import OrderRule
 from pdfsplitter.domain.layout.split_lines import SplitLines
 from pdfsplitter.domain.layout.tile_order import TileOrder
 from pdfsplitter.domain.paper.paper_database import PaperDatabase
@@ -50,7 +51,8 @@ class MainViewModel(QObject):
         self._document: DocumentDTO | None = None
         self._current_page_index: int = 0
         self._split_lines = SplitLines.empty()
-        self._tile_order = TileOrder.auto(1)
+        self._order_rule: OrderRule = OrderRule.default()
+        self._tile_order = self._make_auto_order(1)
         self._layout_engine = LayoutEngine()
         self._has_manual_order: bool = False
         self._is_dirty: bool = False
@@ -60,6 +62,7 @@ class MainViewModel(QObject):
         self._resolved_filter: PageFilterDTO = PageFilterDTO()
         self._selection: PageSelection = PageSelection.empty()
         self._view_mode: str = "all"
+        self._order_rule: OrderRule = OrderRule.default()
 
     @property
     def document(self) -> DocumentDTO | None:
@@ -102,6 +105,21 @@ class MainViewModel(QObject):
     @property
     def view_mode(self) -> str:
         return self._view_mode
+
+    @property
+    def order_rule(self) -> OrderRule:
+        return self._order_rule
+
+    def set_order_rule(self, rule: OrderRule) -> None:
+        self._order_rule = rule
+        if not self._has_manual_order:
+            self.reset_order()
+        self._mark_dirty()
+
+    def _make_auto_order(self, tile_count: int) -> TileOrder:
+        rows = self._split_lines.row_count
+        cols = self._split_lines.col_count
+        return TileOrder.auto(tile_count, self._order_rule, rows, cols)
 
     @property
     def selected_indices(self) -> frozenset[int]:
@@ -201,7 +219,7 @@ class MainViewModel(QObject):
             self._document = dto
             self._current_page_index = 0
             self._split_lines = SplitLines.empty()
-            self._tile_order = TileOrder.auto(1)
+            self._tile_order = self._make_auto_order(1)
             self._has_manual_order = False
             self._is_dirty = False
             self._page_states.clear()
@@ -210,6 +228,7 @@ class MainViewModel(QObject):
             self._resolved_filter = PageFilterDTO()
             self._selection = PageSelection.all_selected(dto.page_count)
             self._view_mode = "all"
+            self._order_rule = OrderRule.default()
             self.document_loaded_signal.emit(dto)
             self.progress_signal.emit(f"已加载: {names} ({dto.page_count} 页)")
             self.page_filter_changed_signal.emit(self._resolved_filter)
@@ -234,7 +253,7 @@ class MainViewModel(QObject):
         else:
             self._split_lines = SplitLines.empty()
             self._has_manual_order = False
-            self._tile_order = TileOrder.auto(1)
+            self._tile_order = self._make_auto_order(1)
         self._update_split_lines_preview()
         if not restored:
             self.order_reset_signal.emit()
@@ -365,13 +384,13 @@ class MainViewModel(QObject):
 
     def set_tile_order(self, ordered_indices: list[int]) -> None:
         self._has_manual_order = True
-        self._tile_order = TileOrder.auto(len(ordered_indices)).with_manual_order(ordered_indices)
+        self._tile_order = self._make_auto_order(len(ordered_indices)).with_manual_order(ordered_indices)
         self._mark_dirty()
 
     def reset_order(self) -> None:
         tile_count = self._split_lines.tile_count
         self._has_manual_order = False
-        self._tile_order = TileOrder.auto(max(1, tile_count))
+        self._tile_order = self._make_auto_order(max(1, tile_count))
         self._mark_dirty()
 
     @property
@@ -436,6 +455,12 @@ class MainViewModel(QObject):
             }
         data["selected_indices"] = list(sorted(self._selection.selected_indices))
         data["view_mode"] = self._view_mode
+        if not self._order_rule.is_default:
+            data["order_rule"] = {
+                "row_direction": self._order_rule.row_direction,
+                "col_direction": self._order_rule.col_direction,
+                "primary_axis": self._order_rule.primary_axis,
+            }
         page_states = dict(self._page_states)
         page_states[self._current_page_index] = self._serialize_current_page()
         for idx, state in page_states.items():
@@ -511,6 +536,16 @@ class MainViewModel(QObject):
         else:
             self._selection = PageSelection.empty()
         self._view_mode = data.get("view_mode", "all")
+
+        or_data = data.get("order_rule")
+        if or_data:
+            self._order_rule = OrderRule(
+                row_direction=or_data.get("row_direction", "top_to_bottom"),
+                col_direction=or_data.get("col_direction", "left_to_right"),
+                primary_axis=or_data.get("primary_axis", "row"),
+            )
+        else:
+            self._order_rule = OrderRule.default()
 
         if self._document:
             self.select_page(0)
