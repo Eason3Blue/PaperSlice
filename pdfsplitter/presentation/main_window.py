@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 class MainWindow(QMainWindow):
     """PDF Poster Splitter 主窗口.
 
-    布局: 左侧面板(文件+控制) | 右侧预览
+    布局: 左侧面板(文件+页面列表) | 预览 | 右侧面板(纸张+切割线+导出)
     """
 
     def __init__(self, viewmodel: MainViewModel) -> None:
@@ -44,7 +44,7 @@ class MainWindow(QMainWindow):
         self._setup_ui()
         self._connect_signals()
         self.setWindowTitle("PDF Poster Splitter")
-        self.resize(1300, 800)
+        self.resize(1400, 800)
 
     def _setup_ui(self) -> None:
         central = QWidget()
@@ -55,9 +55,11 @@ class MainWindow(QMainWindow):
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(self._create_left_panel())
         splitter.addWidget(self._create_preview_panel())
-        splitter.setSizes([320, 960])
+        splitter.addWidget(self._create_right_panel())
+        splitter.setSizes([200, 920, 280])
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
+        splitter.setStretchFactor(2, 0)
         main_layout.addWidget(splitter)
 
         self.status_bar = QStatusBar()
@@ -85,12 +87,19 @@ class MainWindow(QMainWindow):
         project_row.addWidget(self.btn_load)
         fl.addLayout(project_row)
         self.page_list = QListWidget()
-        self.page_list.setMaximumHeight(180)
         fl.addWidget(self.page_list)
         self.label_page_info = QLabel("未选择页面")
         fl.addWidget(self.label_page_info)
         file_group.setLayout(fl)
         layout.addWidget(file_group)
+
+        return panel
+
+    def _create_right_panel(self) -> QWidget:
+        panel = QWidget()
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(6)
 
         paper_group = QGroupBox("目标纸张")
         pl = QVBoxLayout()
@@ -172,7 +181,9 @@ class MainWindow(QMainWindow):
 
         self.btn_export = QPushButton("切分并导出 (全部页)")
         self.btn_export.setMinimumHeight(36)
-        self.btn_export.setStyleSheet("QPushButton { font-weight: bold; background-color: #0078D4; color: white; }")
+        self.btn_export.setStyleSheet(
+            "QPushButton { font-weight: bold; background-color: #0078D4; color: white; }"
+        )
         layout.addWidget(self.btn_export)
 
         return panel
