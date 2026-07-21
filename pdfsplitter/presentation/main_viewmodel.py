@@ -9,11 +9,14 @@ from typing import Any
 
 from PySide6.QtCore import QObject, Signal
 
-from pdfsplitter.application.dto import DocumentDTO, PageInfoDTO, PosterSplitConfigDTO
+from pdfsplitter.application.dto import DocumentDTO, PageFilterDTO, PageInfoDTO, PageListStateDTO, PosterSplitConfigDTO
 from pdfsplitter.application.export_usecase import ExportUseCase
+from pdfsplitter.application.page_filter_usecase import PageFilterUseCase
 from pdfsplitter.application.repository import DocumentRepository, RepositoryRouter
 from pdfsplitter.application.usecases import PosterSplitUseCase
 from pdfsplitter.domain.export.export_config import ExportConfig, ExportFormat, ExportResult
+from pdfsplitter.domain.filter.page_filter import PageFilter
+from pdfsplitter.domain.filter.page_selection import PageSelection
 from pdfsplitter.domain.layout.layout_engine import LayoutEngine
 from pdfsplitter.domain.layout.split_lines import SplitLines
 from pdfsplitter.domain.layout.tile_order import TileOrder
@@ -36,6 +39,8 @@ class MainViewModel(QObject):
     dirty_changed_signal = Signal(bool)
     error_signal = Signal(str)
     progress_signal = Signal(str)
+    page_filter_changed_signal = Signal(object)
+    page_list_state_changed_signal = Signal(object)
 
     def __init__(self, repository: RepositoryRouter, config: ConfigService) -> None:
         super().__init__()
@@ -51,6 +56,10 @@ class MainViewModel(QObject):
         self._is_dirty: bool = False
         self._project_path: Path | None = None
         self._page_states: dict[int, dict[str, Any]] = {}
+        self._page_filter: PageFilter = PageFilter.empty()
+        self._resolved_filter: PageFilterDTO = PageFilterDTO()
+        self._selection: PageSelection = PageSelection.empty()
+        self._view_mode: str = "all"
 
     @property
     def document(self) -> DocumentDTO | None:
@@ -77,6 +86,98 @@ class MainViewModel(QObject):
     @property
     def project_path(self) -> Path | None:
         return self._project_path
+
+    @property
+    def page_filter(self) -> PageFilter:
+        return self._page_filter
+
+    @property
+    def resolved_filter(self) -> PageFilterDTO:
+        return self._resolved_filter
+
+    @property
+    def selection(self) -> PageSelection:
+        return self._selection
+
+    @property
+    def view_mode(self) -> str:
+        return self._view_mode
+
+    @property
+    def selected_indices(self) -> frozenset[int]:
+        return self._selection.selected_indices
+
+    def _build_page_list_state(self) -> PageListStateDTO:
+        if self._document is None:
+            return PageListStateDTO()
+        return PageListStateDTO(
+            total_pages=self._document.page_count,
+            view_mode=self._view_mode,
+            selected_indices=tuple(sorted(self._selection.selected_indices)),
+            filtered_indices=self._resolved_filter.matched_indices,
+            filter_active=self._page_filter.is_active,
+        )
+
+    def _emit_page_list_state(self) -> None:
+        self.page_list_state_changed_signal.emit(self._build_page_list_state())
+
+    def toggle_page_selection(self, page_index: int) -> None:
+        self._selection = self._selection.with_toggled(page_index)
+        self._mark_dirty()
+        self._emit_page_list_state()
+
+    def select_all_visible(self) -> None:
+        if self._document is None:
+            return
+        state = self._build_page_list_state()
+        self._selection = self._selection.with_added(set(state.visible_indices))
+        self._mark_dirty()
+        self._emit_page_list_state()
+
+    def deselect_all(self) -> None:
+        self._selection = PageSelection.empty()
+        self._mark_dirty()
+        self._emit_page_list_state()
+
+    def set_view_mode(self, mode: str) -> None:
+        self._view_mode = mode
+        self._emit_page_list_state()
+
+    def get_filtered_indices(self) -> set[int]:
+        if not self._page_filter.is_active or self._document is None:
+            return set(range(self._document.page_count))
+        return set(self._resolved_filter.matched_indices)
+
+    def set_page_filter(self, filter_obj: PageFilter) -> None:
+        self._page_filter = filter_obj
+        self._resolve_filter()
+        if filter_obj.is_active:
+            self._view_mode = "filtered"
+        else:
+            self._view_mode = "all"
+        self._mark_dirty()
+        self.page_filter_changed_signal.emit(self._resolved_filter)
+        self._emit_page_list_state()
+
+    def clear_page_filter(self) -> None:
+        self._page_filter = PageFilter.empty()
+        self._resolve_filter()
+        self._view_mode = "all"
+        self._mark_dirty()
+        self.page_filter_changed_signal.emit(self._resolved_filter)
+        self._emit_page_list_state()
+
+    def _resolve_filter(self) -> None:
+        if self._document is None:
+            self._resolved_filter = PageFilterDTO(
+                page_range_mode=self._page_filter.page_range_mode,
+                matched_indices=(),
+                total_pages=0,
+            )
+            return
+        self._resolved_filter = PageFilterUseCase.resolve(
+            self._page_filter, self._document.pages,
+        )
 
     def load_document(self, path: str) -> None:
         self.load_documents([path])
@@ -105,8 +206,14 @@ class MainViewModel(QObject):
             self._is_dirty = False
             self._page_states.clear()
             self._project_path = None
+            self._page_filter = PageFilter.empty()
+            self._resolved_filter = PageFilterDTO()
+            self._selection = PageSelection.all_selected(dto.page_count)
+            self._view_mode = "all"
             self.document_loaded_signal.emit(dto)
             self.progress_signal.emit(f"已加载: {names} ({dto.page_count} 页)")
+            self.page_filter_changed_signal.emit(self._resolved_filter)
+            self._emit_page_list_state()
         except FileNotFoundError:
             self.error_signal.emit(f"文件不存在: {paths[0]}")
         except ValueError as e:
@@ -147,7 +254,10 @@ class MainViewModel(QObject):
             return SplitLines.empty()
 
         if apply_to_all and self._document:
+            target_indices = self.get_filtered_indices() if self._page_filter.is_active else set(range(self._document.page_count))
             for page_idx in range(self._document.page_count):
+                if page_idx not in target_indices:
+                    continue
                 p = self._document.pages[page_idx]
                 sl = _make_lines(p)
                 self._page_states[page_idx] = self._make_page_state(sl)
@@ -166,7 +276,10 @@ class MainViewModel(QObject):
 
         if apply_to_all and self._document:
             self._save_current_page_state()
+            target_indices = self.get_filtered_indices() if self._page_filter.is_active else set(range(self._document.page_count))
             for page_idx in range(self._document.page_count):
+                if page_idx not in target_indices:
+                    continue
                 p = self._document.pages[page_idx]
                 center = p.width_pt / 2.0
                 existing = self._page_states.get(page_idx, dict(self._empty_page_state()))
@@ -190,7 +303,10 @@ class MainViewModel(QObject):
 
         if apply_to_all and self._document:
             self._save_current_page_state()
+            target_indices = self.get_filtered_indices() if self._page_filter.is_active else set(range(self._document.page_count))
             for page_idx in range(self._document.page_count):
+                if page_idx not in target_indices:
+                    continue
                 p = self._document.pages[page_idx]
                 center = p.height_pt / 2.0
                 existing = self._page_states.get(page_idx, dict(self._empty_page_state()))
@@ -221,7 +337,12 @@ class MainViewModel(QObject):
     def clear_split_lines(self, apply_to_all: bool = False) -> None:
         if apply_to_all and self._document:
             self._save_current_page_state()
-            self._page_states.clear()
+            target_indices = self.get_filtered_indices() if self._page_filter.is_active else set(range(self._document.page_count))
+            if len(target_indices) < self._document.page_count:
+                for idx in target_indices:
+                    self._page_states.pop(idx, None)
+            else:
+                self._page_states.clear()
         self._clear_order()
         self._split_lines = SplitLines.empty()
         self._mark_dirty()
@@ -289,6 +410,17 @@ class MainViewModel(QObject):
             "source_paths": [str(p) for p in self._document.source_paths] if self._document and self._document.source_paths else [],
             "pages": {},
         }
+        if self._page_filter.is_active:
+            data["page_filter"] = {
+                "page_range_mode": self._page_filter.page_range_mode,
+                "page_start": self._page_filter.page_start,
+                "page_end": self._page_filter.page_end,
+                "page_list_spec": self._page_filter.page_list_spec,
+                "paper_names": list(self._page_filter.paper_names),
+                "orientation_mode": self._page_filter.orientation_mode,
+            }
+        data["selected_indices"] = list(sorted(self._selection.selected_indices))
+        data["view_mode"] = self._view_mode
         page_states = dict(self._page_states)
         page_states[self._current_page_index] = self._serialize_current_page()
         for idx, state in page_states.items():
@@ -342,6 +474,29 @@ class MainViewModel(QObject):
         for key, state in data.get("pages", {}).items():
             self._page_states[int(key)] = state
 
+        pf = data.get("page_filter")
+        if pf:
+            self._page_filter = PageFilter(
+                page_range_mode=pf.get("page_range_mode", "all"),
+                page_start=pf.get("page_start", 1),
+                page_end=pf.get("page_end", 1),
+                page_list_spec=pf.get("page_list_spec", ""),
+                paper_names=tuple(pf.get("paper_names", [])),
+                orientation_mode=pf.get("orientation_mode", "all"),
+            )
+        else:
+            self._page_filter = PageFilter.empty()
+        self._resolve_filter()
+
+        si = data.get("selected_indices", [])
+        if si:
+            self._selection = PageSelection(selected_indices=frozenset(int(i) for i in si))
+        elif self._document:
+            self._selection = PageSelection.all_selected(self._document.page_count)
+        else:
+            self._selection = PageSelection.empty()
+        self._view_mode = data.get("view_mode", "all")
+
         if self._document:
             self.select_page(0)
             self.render_page_preview(0)
@@ -349,6 +504,8 @@ class MainViewModel(QObject):
         self._is_dirty = False
         self.dirty_changed_signal.emit(False)
         self.project_saved_signal.emit(str(file_path))
+        self.page_filter_changed_signal.emit(self._resolved_filter)
+        self._emit_page_list_state()
         logger.info("Project loaded from %s", file_path)
 
     def _save_current_page_state(self) -> None:
@@ -464,9 +621,13 @@ class MainViewModel(QObject):
 
         skipped: list[int] = []
         incomplete: list[int] = []
+        unselected: list[int] = []
         page_configs: dict[int, tuple[SplitLines, TileOrder]] = {}
 
         for page_idx in range(self._document.page_count):
+            if page_idx not in self._selection.selected_indices:
+                unselected.append(page_idx)
+                continue
             if page_idx in self._page_states:
                 state = self._page_states[page_idx]
                 sl = SplitLines(
@@ -487,6 +648,8 @@ class MainViewModel(QObject):
             return
 
         warnings: list[str] = []
+        if unselected:
+            warnings.append(f"以下页面未勾选, 将被跳过: {[p + 1 for p in unselected]}")
         if skipped:
             warnings.append(f"以下页面未配置切割线，将被跳过: {[p + 1 for p in skipped]}")
         if incomplete:

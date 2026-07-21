@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QListWidget,
+    QListWidgetItem,
     QMainWindow,
     QMessageBox,
     QPushButton,
@@ -25,8 +26,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from pdfsplitter.application.dto import DocumentDTO
+from pdfsplitter.application.dto import DocumentDTO, PageFilterDTO, PageListStateDTO
 from pdfsplitter.presentation.main_viewmodel import MainViewModel
+from pdfsplitter.presentation.page_filter_dialog import PageFilterDialog
 from pdfsplitter.presentation.preview_widget import PreviewWidget
 
 logger = logging.getLogger(__name__)
@@ -41,6 +43,7 @@ class MainWindow(QMainWindow):
     def __init__(self, viewmodel: MainViewModel) -> None:
         super().__init__()
         self._vm = viewmodel
+        self._list_rebuilding: bool = False
         self._setup_ui()
         self._connect_signals()
         self.setWindowTitle("PDF Poster Splitter")
@@ -86,10 +89,40 @@ class MainWindow(QMainWindow):
         project_row.addWidget(self.btn_save)
         project_row.addWidget(self.btn_load)
         fl.addLayout(project_row)
+
+        header_row = QHBoxLayout()
+        header_row.setSpacing(4)
+        self.check_select_all = QCheckBox("全选")
+        self.check_select_all.setTristate(True)
+        self.check_select_all.setChecked(True)
+        header_row.addWidget(self.check_select_all)
+        self.combo_view_mode = QComboBox()
+        self.combo_view_mode.addItems(["全部页面", "筛选结果"])
+        self.combo_view_mode.setFixedWidth(80)
+        header_row.addWidget(self.combo_view_mode)
+        header_row.addStretch()
+        fl.addLayout(header_row)
+
         self.page_list = QListWidget()
         fl.addWidget(self.page_list)
+
+        filter_row = QHBoxLayout()
+        self.btn_filter = QPushButton("筛选")
+        self.btn_filter.setToolTip("按页码/尺寸/方向筛选页面")
+        filter_row.addWidget(self.btn_filter)
+        self.btn_clear_filter = QPushButton("清除")
+        self.btn_clear_filter.setVisible(False)
+        self.btn_clear_filter.setToolTip("清除筛选条件")
+        filter_row.addWidget(self.btn_clear_filter)
+        filter_row.addStretch()
+        fl.addLayout(filter_row)
+
         self.label_page_info = QLabel("未选择页面")
         fl.addWidget(self.label_page_info)
+        self.label_filter_status = QLabel("")
+        self.label_filter_status.setStyleSheet("color: #0078D4; font-size: 11px;")
+        fl.addWidget(self.label_filter_status)
+
         file_group.setLayout(fl)
         layout.addWidget(file_group)
 
@@ -246,6 +279,10 @@ class MainWindow(QMainWindow):
         self.btn_load.clicked.connect(self._on_load)
         self.combo_category.currentTextChanged.connect(self._on_paper_category_changed)
         self.page_list.currentRowChanged.connect(self._on_page_selected)
+        self.page_list.itemChanged.connect(self._on_item_check_changed)
+
+        self.check_select_all.clicked.connect(self._on_select_all_clicked)
+        self.combo_view_mode.currentTextChanged.connect(self._on_view_mode_changed)
 
         self.btn_half_v.clicked.connect(lambda: self._vm.apply_split_preset("half_v", self.check_preset_all.isChecked()))
         self.btn_half_h.clicked.connect(lambda: self._vm.apply_split_preset("half_h", self.check_preset_all.isChecked()))
@@ -254,6 +291,9 @@ class MainWindow(QMainWindow):
         self.btn_add_v.clicked.connect(lambda: self._vm.add_vertical_line(self.check_manual_all.isChecked()))
         self.btn_add_h.clicked.connect(lambda: self._vm.add_horizontal_line(self.check_manual_all.isChecked()))
         self.btn_clear_lines.clicked.connect(lambda: self._vm.clear_split_lines(self.check_manual_all.isChecked()))
+
+        self.btn_filter.clicked.connect(self._on_open_filter)
+        self.btn_clear_filter.clicked.connect(self._on_clear_filter)
 
         self.check_auto_order.toggled.connect(self._on_order_mode_changed)
         self.btn_reset_order.clicked.connect(self._on_reset_order)
@@ -282,6 +322,8 @@ class MainWindow(QMainWindow):
         self._vm.dirty_changed_signal.connect(self._on_dirty_changed)
         self._vm.error_signal.connect(lambda m: QMessageBox.critical(self, "错误", m))
         self._vm.progress_signal.connect(self.status_bar.showMessage)
+        self._vm.page_filter_changed_signal.connect(self._on_filter_changed)
+        self._vm.page_list_state_changed_signal.connect(self._on_page_list_state_changed)
 
     def _on_open(self) -> None:
         paths, _ = QFileDialog.getOpenFileNames(
@@ -298,20 +340,51 @@ class MainWindow(QMainWindow):
         self._vm.load_document(path)
 
     def _on_page_selected(self, index: int) -> None:
+        if self._list_rebuilding:
+            return
         if index >= 0:
             self._vm.select_page(index)
             self._vm.render_page_preview(index)
 
+    def _on_item_check_changed(self, item: QListWidgetItem) -> None:
+        if self._list_rebuilding:
+            return
+        page_index = item.data(Qt.ItemDataRole.UserRole)
+        if page_index is not None:
+            self._vm.toggle_page_selection(int(page_index))
+
+    def _on_select_all_clicked(self, checked: bool) -> None:
+        if self._list_rebuilding:
+            return
+        if checked:
+            self._vm.select_all_visible()
+        else:
+            self._vm.deselect_all()
+
+    def _on_view_mode_changed(self, text: str) -> None:
+        if self._list_rebuilding:
+            return
+        mode = "filtered" if text == "筛选结果" else "all"
+        self._vm.set_view_mode(mode)
+
     def _on_document_loaded(self, doc: DocumentDTO) -> None:
+        self._list_rebuilding = True
         self.page_list.blockSignals(True)
         self.page_list.clear()
         for page in doc.pages:
             orientation = "L" if page.is_landscape else "P"
-            self.page_list.addItem(
+            item = QListWidgetItem(
                 f"第 {page.index + 1} 页 ({page.width_pt:.0f}x{page.height_pt:.0f}pt {orientation})"
             )
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(Qt.CheckState.Checked)
+            item.setData(Qt.ItemDataRole.UserRole, page.index)
+            self.page_list.addItem(item)
         self.page_list.setCurrentRow(0)
         self.page_list.blockSignals(False)
+        self._list_rebuilding = False
+        self.check_select_all.setCheckState(Qt.CheckState.Checked)
+        self.combo_view_mode.setCurrentIndex(0)
         self._init_dpi_combo()
         self._populate_paper_list("ISO216")
         self._vm.render_page_preview(0)
@@ -406,6 +479,82 @@ class MainWindow(QMainWindow):
         dpi = max(50, min(dpi, 600))
         self.input_custom_dpi.setText(str(dpi))
         self._vm.set_render_dpi(dpi)
+
+    def _on_open_filter(self) -> None:
+        if self._vm.document is None:
+            QMessageBox.warning(self, "提示", "请先加载文档")
+            return
+
+        pages = self._vm.document.pages
+        dialog = PageFilterDialog(self._vm.page_filter, pages, self)
+        if dialog.exec() == PageFilterDialog.DialogCode.Accepted:
+            new_filter = dialog.result()
+            self._vm.set_page_filter(new_filter)
+
+    def _on_clear_filter(self) -> None:
+        self._vm.clear_page_filter()
+
+    def _on_filter_changed(self, dto: PageFilterDTO) -> None:
+        active = dto.is_active
+        self.btn_clear_filter.setVisible(active)
+        if active:
+            new_label = "应用到筛选页"
+        else:
+            new_label = "应用到所有页"
+        self.check_preset_all.setText(new_label)
+        self.check_manual_all.setText(new_label)
+
+    def _on_page_list_state_changed(self, state: PageListStateDTO) -> None:
+        self._list_rebuilding = True
+
+        self.page_list.blockSignals(True)
+
+        if state.filter_active and state.view_mode == "filtered":
+            filtered_set = set(state.filtered_indices)
+        else:
+            filtered_set = set(range(state.total_pages))
+
+        selected_set = set(state.selected_indices)
+
+        for row in range(self.page_list.count()):
+            item = self.page_list.item(row)
+            page_index = item.data(Qt.ItemDataRole.UserRole)
+            if page_index is None:
+                continue
+            idx = int(page_index)
+
+            visible = idx in filtered_set
+            self.page_list.setRowHidden(row, not visible)
+
+            if idx in selected_set:
+                item.setCheckState(Qt.CheckState.Checked)
+            else:
+                item.setCheckState(Qt.CheckState.Unchecked)
+
+        self.page_list.blockSignals(False)
+
+        if state.is_all_selected:
+            self.check_select_all.setCheckState(Qt.CheckState.Checked)
+        elif state.is_partially_selected:
+            self.check_select_all.setCheckState(Qt.CheckState.PartiallyChecked)
+        else:
+            self.check_select_all.setCheckState(Qt.CheckState.Unchecked)
+
+        self.combo_view_mode.blockSignals(True)
+        self.combo_view_mode.setCurrentIndex(0 if state.view_mode == "all" else 1)
+        self.combo_view_mode.blockSignals(False)
+
+        if state.filter_active:
+            filtered_count = state.visible_count
+            self.label_filter_status.setText(
+                f"显示 {filtered_count}/{state.total_pages} 页 (已筛选 {state.total_pages - filtered_count} 页)"
+            )
+            self.btn_clear_filter.setVisible(True)
+        else:
+            self.label_filter_status.setText("")
+            self.btn_clear_filter.setVisible(False)
+
+        self._list_rebuilding = False
 
     def _on_export_page(self) -> None:
         """导出当前页."""

@@ -73,3 +73,77 @@ class LayoutResultDTO:
     rows: int
     cols: int
     tiles: tuple[PreviewTileDTO, ...]
+
+
+@dataclass(frozen=True)
+class PageFilterDTO:
+    """页面筛选条件 DTO."""
+
+    page_range_mode: str = "all"
+    page_start: int = 1
+    page_end: int = 1
+    page_list_spec: str = ""
+    paper_names: tuple[str, ...] = field(default_factory=tuple)
+    orientation_mode: str = "all"
+    matched_indices: tuple[int, ...] = field(default_factory=tuple)
+    total_pages: int = 0
+
+    @property
+    def matched_count(self) -> int:
+        """匹配的页数."""
+        return len(self.matched_indices)
+
+    @property
+    def is_active(self) -> bool:
+        """是否有筛选条件生效."""
+        return self.page_range_mode != "all" or bool(self.paper_names) or self.orientation_mode != "all"
+
+
+@dataclass(frozen=True)
+class PageListStateDTO:
+    """页面列表完整状态 DTO.
+
+    打包筛选结果、选中状态和视图模式, 供 UI 层一次性同步.
+    """
+
+    total_pages: int = 0
+    view_mode: str = "all"
+    selected_indices: tuple[int, ...] = field(default_factory=tuple)
+    filtered_indices: tuple[int, ...] = field(default_factory=tuple)
+    filter_active: bool = False
+
+    @property
+    def visible_indices(self) -> tuple[int, ...]:
+        """当前可见的页面索引."""
+        if self.view_mode == "filtered" and self.filter_active:
+            return self.filtered_indices
+        return tuple(range(self.total_pages))
+
+    @property
+    def visible_count(self) -> int:
+        """可见页数."""
+        return len(self.visible_indices)
+
+    @property
+    def is_all_selected(self) -> bool:
+        """是否所有可见页面都被选中."""
+        if not self.visible_indices:
+            return False
+        selected = set(self.selected_indices)
+        return all(i in selected for i in self.visible_indices)
+
+    @property
+    def is_partially_selected(self) -> bool:
+        """是否部分（非全部、非零）可见页面被选中."""
+        if not self.visible_indices:
+            return False
+        selected = set(self.selected_indices)
+        visible_set = set(self.visible_indices)
+        some = any(i in selected for i in visible_set)
+        all_sel = all(i in selected for i in visible_set)
+        return some and not all_sel
+
+    @property
+    def selected_count(self) -> int:
+        """被选中的页数."""
+        return len(self.selected_indices)

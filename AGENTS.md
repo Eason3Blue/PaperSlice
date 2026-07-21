@@ -2,14 +2,20 @@
 
 ## Quick Start
 ```powershell
-# Run app
-.venv\Scripts\python.exe -m pdfsplitter.main     # production
-$env:pdfsplitter_DEV = "1"; python -m pdfsplitter.main   # debug logging
+# Run app (production)
+.venv\Scripts\python.exe -m pdfsplitter.main
 
-# Run tests (292 passing as of last audit)
+# Run app (debug logging)
+$env:pdfsplitter_DEV = "1"; .venv\Scripts\python.exe -m pdfsplitter.main
+
+# Run all tests
 .venv\Scripts\python.exe -m pytest tests/ -v
 
-# Build exe
+# Run tests per module
+.venv\Scripts\python.exe -m pytest tests/domain/geometry/ -v
+.venv\Scripts\python.exe -m pytest tests/domain/layout/ -v
+
+# Build exe (always does clean + build)
 .venv\Scripts\python.exe build.py --clean
 ```
 
@@ -49,14 +55,21 @@ Presentation (PySide6)  →  ViewModel  →  UseCase  →  Repository Interface 
 |------|------|
 | `pdfsplitter/bootstrap.py` | DI container, assembles all components |
 | `pdfsplitter/main.py` | Entry point |
-| `pdfsplitter/presentation/main_viewmodel.py` | Central VM (645 loc), all app state + signals |
+| `pdfsplitter/presentation/main_viewmodel.py` | Central VM, all app state + signals |
 | `pdfsplitter/presentation/main_window.py` | Main window, wire signals in `_connect_signals()` |
 | `pdfsplitter/presentation/preview_widget.py` | QGraphicsView with draggable lines + tile ordering |
-| `pdfsplitter/infrastructure/pdf_splitter.py` | Core split logic (303 loc), `split()` / `split_all()` |
+| `pdfsplitter/infrastructure/pdf_splitter.py` | Core split logic, `split()` / `split_all()` |
 | `pdfsplitter/infrastructure/mupdf_repository.py` | MuPDF adapter, `supports()` + `load()` |
 | `pdfsplitter/domain/layout/layout_engine.py` | Pure geometry: `calculate()` + `calculate_from_lines()` |
 | `pdfsplitter/domain/layout/split_lines.py` | Split line builder: vertical/horizontal, presets, drag |
-| `infrastructure/config.py` | `ConfigService` — reads/writes `settings.json` |
+| `pdfsplitter/infrastructure/config.py` | `ConfigService` — reads/writes `settings.json` |
+
+## Repo Quirks
+- `settings.json` is **gitignored** and lives at repo root (not inside `pdfsplitter/`).
+- `logs/` directory is auto-created at repo root by `logging_config.py`.
+- `.ppslc` is the JSON-based project save format for page configurations.
+- App UI is Chinese-first (`language: "zh_CN"` default); strings are mostly in Chinese.
+- `build.py` always runs `clean()` first (even without `--clean`). `--clean` only cleans without building.
 
 ## Build & Packaging
 - PyInstaller spec: `PaperSlice.spec` (hardcoded absolute paths — regenerate via `build.py`).
