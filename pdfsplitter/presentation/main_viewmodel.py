@@ -560,7 +560,8 @@ class MainViewModel(QObject):
             pdf = fitz.open(str(source_path))
             local_index = self._get_local_page_index(page_index)
             fitz_page = pdf.load_page(local_index)
-            zoom = 1.5
+            dpi = self._config.get("default_dpi", 150)
+            zoom = dpi / 72.0
             mat = fitz.Matrix(zoom, zoom)
             pix = fitz_page.get_pixmap(matrix=mat)
             img_data = pix.tobytes("png")
@@ -568,6 +569,25 @@ class MainViewModel(QObject):
             self.preview_pixmap_ready_signal.emit(img_data)
         except Exception:
             logger.exception("render_page_preview failed")
+
+    def set_render_dpi(self, dpi: int) -> None:
+        """设置预览渲染 DPI 并重新渲染当前页.
+
+        Args:
+            dpi: 渲染 DPI (50-600).
+        """
+        dpi = max(50, min(dpi, 600))
+        current = self._config.get("default_dpi", 150)
+        if dpi == current:
+            return
+        self._config.set("default_dpi", dpi)
+        self._config.save()
+        if self._document and self._current_page_index < self._document.page_count:
+            self.render_page_preview(self._current_page_index)
+
+    def get_render_dpi(self) -> int:
+        """获取当前渲染 DPI."""
+        return self._config.get("default_dpi", 150)
 
     def _get_source_path_for_page(self, page_index: int) -> Path:
         if self._document is None:

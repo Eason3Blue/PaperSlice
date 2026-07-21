@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QPixmap
+from PySide6.QtGui import QIntValidator, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QListWidget,
     QMainWindow,
     QMessageBox,
@@ -205,11 +206,24 @@ class MainWindow(QMainWindow):
         self.btn_zoom_fit.setFixedHeight(24)
         self.btn_zoom_fit.setToolTip("适应窗口")
 
+        self.combo_dpi = QComboBox()
+        self.combo_dpi.setFixedWidth(110)
+        self.combo_dpi.setToolTip("预览渲染质量")
+        self.combo_dpi.addItems(["快速(100dpi)", "标准(150dpi)", "高清(300dpi)", "自定义"])
+
+        self.input_custom_dpi = QLineEdit()
+        self.input_custom_dpi.setFixedWidth(70)
+        self.input_custom_dpi.setPlaceholderText("50-600")
+        self.input_custom_dpi.setValidator(QIntValidator(50, 600))
+        self.input_custom_dpi.setVisible(False)
+
         zoom_bar.addStretch()
         zoom_bar.addWidget(self.label_zoom)
         zoom_bar.addWidget(self.btn_zoom_out)
         zoom_bar.addWidget(self.btn_zoom_in)
         zoom_bar.addWidget(self.btn_zoom_fit)
+        zoom_bar.addWidget(self.combo_dpi)
+        zoom_bar.addWidget(self.input_custom_dpi)
         zoom_bar.addStretch()
         layout.addLayout(zoom_bar)
 
@@ -244,6 +258,10 @@ class MainWindow(QMainWindow):
         self.btn_zoom_in.clicked.connect(self.preview.zoom_in)
         self.btn_zoom_out.clicked.connect(self.preview.zoom_out)
         self.btn_zoom_fit.clicked.connect(self.preview.zoom_fit)
+
+        self.combo_dpi.currentIndexChanged.connect(self._on_dpi_changed)
+        self.input_custom_dpi.returnPressed.connect(self._on_custom_dpi_entered)
+        self.input_custom_dpi.editingFinished.connect(self._on_custom_dpi_entered)
 
         self._vm.document_loaded_signal.connect(self._on_document_loaded)
         self._vm.preview_pixmap_ready_signal.connect(self._on_preview_ready)
@@ -283,6 +301,7 @@ class MainWindow(QMainWindow):
             )
         self.page_list.setCurrentRow(0)
         self.page_list.blockSignals(False)
+        self._init_dpi_combo()
         self._populate_paper_list("ISO216")
         self._vm.render_page_preview(0)
 
@@ -333,6 +352,49 @@ class MainWindow(QMainWindow):
 
     def _on_zoom_changed(self, level: float) -> None:
         self.label_zoom.setText(f"{int(level * 100)}%")
+
+    def _init_dpi_combo(self) -> None:
+        """根据当前配置设置 DPI 下拉框."""
+        dpi = self._vm.get_render_dpi()
+        self.combo_dpi.blockSignals(True)
+        if dpi == 100:
+            self.combo_dpi.setCurrentIndex(0)
+        elif dpi == 150:
+            self.combo_dpi.setCurrentIndex(1)
+        elif dpi == 300:
+            self.combo_dpi.setCurrentIndex(2)
+        else:
+            self.combo_dpi.setCurrentIndex(3)
+            self.input_custom_dpi.setText(str(dpi))
+            self.input_custom_dpi.setVisible(True)
+        self.combo_dpi.blockSignals(False)
+
+    def _on_dpi_changed(self, index: int) -> None:
+        self.input_custom_dpi.clear()
+        if index == 0:
+            self.input_custom_dpi.setVisible(False)
+            self._vm.set_render_dpi(100)
+        elif index == 1:
+            self.input_custom_dpi.setVisible(False)
+            self._vm.set_render_dpi(150)
+        elif index == 2:
+            self.input_custom_dpi.setVisible(False)
+            self._vm.set_render_dpi(300)
+        else:
+            self.input_custom_dpi.setVisible(True)
+            self.input_custom_dpi.setFocus()
+
+    def _on_custom_dpi_entered(self) -> None:
+        text = self.input_custom_dpi.text().strip()
+        if not text:
+            return
+        try:
+            dpi = int(text)
+        except ValueError:
+            return
+        dpi = max(50, min(dpi, 600))
+        self.input_custom_dpi.setText(str(dpi))
+        self._vm.set_render_dpi(dpi)
 
     def _on_export_page(self) -> None:
         """导出当前页."""
