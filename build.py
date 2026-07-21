@@ -37,6 +37,7 @@ def build() -> None:
         "--name", APP_NAME,
         "--onedir",
         "--windowed",
+        "--noconfirm",
         "--clean",
         "--add-data", f"resources{os.pathsep}resources",
         *icon_arg,
@@ -53,8 +54,13 @@ def build() -> None:
     print(f"[BUILD] {' '.join(cmd)}")
     result = subprocess.run(cmd, cwd=str(PROJECT_ROOT))
     if result.returncode == 0:
-        exe = PROJECT_ROOT / "dist" / f"{APP_NAME}.exe"
-        print(f"[OK] 打包完成: {exe}")
+        exe = PROJECT_ROOT / "dist" / APP_NAME / f"{APP_NAME}.exe"
+        if exe.exists():
+            print(f"[OK] 打包完成: {exe}")
+        else:
+            print(f"[OK] 打包完成: {PROJECT_ROOT / 'dist' / APP_NAME}")
+            for f in (PROJECT_ROOT / "dist" / APP_NAME).glob("*.exe"):
+                print(f"       {f}")
     else:
         print(f"[FAIL] 打包失败, 返回码: {result.returncode}")
         sys.exit(1)
