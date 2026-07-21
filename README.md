@@ -217,6 +217,12 @@ PaperSlice/
 
 ---
 
+## TODO LIST
+1. 格式刷/模板，减少重复工作
+2. 支持导出为图片格式
+
+---
+
 ## 许可证
 
 GPL v3.0 License
