@@ -14,11 +14,9 @@ from pdfsplitter.domain.layout.grid import Grid
 from pdfsplitter.domain.layout.layout_engine import LayoutEngine
 from pdfsplitter.domain.layout.split_lines import SplitLines
 from pdfsplitter.domain.layout.tile_order import TileOrder
-from pdfsplitter.domain.units.length import Length, MM_PER_INCH, POINTS_PER_INCH
+from pdfsplitter.domain.units.length import POINTS_PER_MM
 
 logger = logging.getLogger(__name__)
-
-MM_TO_PT = POINTS_PER_INCH / MM_PER_INCH
 
 
 class PdfSplitter:
@@ -62,8 +60,8 @@ class PdfSplitter:
         source_page = source_document.get_page(page_index)
 
         tw_mm, th_mm = target_size_mm
-        target_w = tw_mm * MM_TO_PT
-        target_h = th_mm * MM_TO_PT
+        target_w = tw_mm * POINTS_PER_MM
+        target_h = th_mm * POINTS_PER_MM
 
         src_pdf = fitz.open(str(src_path))
 
@@ -101,8 +99,8 @@ class PdfSplitter:
         import fitz
 
         tw_mm, th_mm = target_size_mm
-        target_w = tw_mm * MM_TO_PT
-        target_h = th_mm * MM_TO_PT
+        target_w = tw_mm * POINTS_PER_MM
+        target_h = th_mm * POINTS_PER_MM
 
         out_pdf = fitz.open()
         total_output = 0

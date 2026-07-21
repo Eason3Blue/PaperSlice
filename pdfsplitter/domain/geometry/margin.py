@@ -72,3 +72,21 @@ class Margin:
     def zero(cls) -> Margin:
         """创建零边距."""
         return cls(left=0.0, right=0.0, top=0.0, bottom=0.0)
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, Margin):
+            return NotImplemented
+        return (
+            math.isclose(self.left, other.left)
+            and math.isclose(self.right, other.right)
+            and math.isclose(self.top, other.top)
+            and math.isclose(self.bottom, other.bottom)
+        )
+
+    def __hash__(self) -> int:
+        return hash((
+            round(self.left, 10),
+            round(self.right, 10),
+            round(self.top, 10),
+            round(self.bottom, 10),
+        ))

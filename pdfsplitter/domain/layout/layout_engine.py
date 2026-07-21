@@ -9,7 +9,6 @@ from pdfsplitter.domain.geometry.size import Size
 from pdfsplitter.domain.layout.grid import Grid
 from pdfsplitter.domain.layout.split_lines import SplitLines
 from pdfsplitter.domain.layout.tile import Tile
-from pdfsplitter.domain.units.length import Length
 
 logger = logging.getLogger(__name__)
 

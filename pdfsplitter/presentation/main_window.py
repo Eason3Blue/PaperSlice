@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QIntValidator, QPixmap
+from PySide6.QtGui import QCloseEvent, QIntValidator, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -494,7 +494,7 @@ class MainWindow(QMainWindow):
         else:
             return False
 
-    def closeEvent(self, event) -> None:
+    def closeEvent(self, event: QCloseEvent) -> None:
         if self._maybe_save():
             event.accept()
         else:

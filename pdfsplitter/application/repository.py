@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Protocol, runtime_checkable
 
 from pdfsplitter.domain.document.document import Document
 from pdfsplitter.domain.document.page import Page
@@ -113,6 +112,7 @@ class RepositoryRouter(DocumentRepository):
                     index=page_index,
                     media_box=page.media_box,
                     crop_box=page.crop_box,
+                    dpi=page.dpi,
                 ))
                 page_index += 1
 

@@ -148,10 +148,6 @@ class _TileOverlay(QGraphicsRectItem):
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawText(bg_rect, Qt.AlignmentFlag.AlignCenter, text)
 
-    @property
-    def order_number(self) -> int | None:
-        return self._order_number
-
 
 class _FitMode(Enum):
     FIT_PAGE = "fit_page"

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Iterator
 
 from pdfsplitter.domain.layout.tile import Tile
 
@@ -80,7 +81,7 @@ class Grid:
                 return tile
         return None
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[Tile]:
         return iter(self.tiles)
 
     def __repr__(self) -> str:

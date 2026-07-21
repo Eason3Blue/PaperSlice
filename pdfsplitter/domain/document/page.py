@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
 
 from pdfsplitter.domain.geometry.rect import Rect
-from pdfsplitter.domain.geometry.point import Point
 from pdfsplitter.domain.geometry.size import Size
 
 
@@ -53,12 +51,6 @@ class Page:
     def is_portrait(self) -> bool:
         """是否为纵向."""
         return self.size.is_portrait
-
-    def _validate_rect_contains(self, rect_name: str, outer: Rect, inner: Rect) -> None:
-        if not outer.contains_rect(inner):
-            raise ValueError(
-                f"{rect_name} ({inner.to_quad()}) 不在 media_box ({outer.to_quad()}) 范围内"
-            )
 
     def __repr__(self) -> str:
         return f"Page(index={self.index}, media_box={self.media_box.to_quad()})"

@@ -628,7 +628,6 @@ class MainViewModel(QObject):
         Returns:
             DocumentDTO.
         """
-        from pdfsplitter.domain.document.document import Document as DomainDocument
         page_infos = tuple(
             PageInfoDTO(
                 index=p.index,

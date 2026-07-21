@@ -12,16 +12,13 @@ from pdfsplitter.application.dto import (
     PosterSplitConfigDTO,
     PreviewTileDTO,
 )
-from pdfsplitter.application.pipeline import PipelineContext, PipelineStage
 from pdfsplitter.application.repository import DocumentRepository
 from pdfsplitter.domain.document.page import Page
 from pdfsplitter.domain.layout.layout_engine import LayoutEngine, LayoutParams
 from pdfsplitter.domain.geometry.size import Size
-from pdfsplitter.domain.units.length import Length
+from pdfsplitter.domain.units.length import POINTS_PER_MM
 
 logger = logging.getLogger(__name__)
-
-MM_TO_PT = 72.0 / 25.4
 
 
 class LoadDocumentUseCase:
@@ -73,55 +70,6 @@ class LoadDocumentUseCase:
         )
 
 
-class SplitStage(PipelineStage):
-    """切分管线阶段 - 将 Split 集成到 Pipeline 中."""
-
-    def __init__(self, layout_engine: LayoutEngine | None = None) -> None:
-        self._engine = layout_engine or LayoutEngine()
-
-    @property
-    def name(self) -> str:
-        return "Split"
-
-    def process(self, context: PipelineContext) -> PipelineContext:
-        config: PosterSplitConfigDTO = context.data["config"]
-        page_size: Size = context.data["page_size"]
-        target_size: Size = context.data["target_size"]
-
-        margin_pt = config.margin_mm * MM_TO_PT
-        overlap_pt = config.overlap_mm * MM_TO_PT
-
-        params = LayoutParams(
-            page_size=page_size,
-            target_size=target_size,
-            margin_h=margin_pt * 2,
-            margin_v=margin_pt * 2,
-            overlap=overlap_pt,
-        )
-        grid = self._engine.calculate(params)
-
-        tiles = tuple(
-            PreviewTileDTO(
-                tile_index=t.index,
-                row=t.row,
-                col=t.col,
-                source_x0=t.source_rect.x0,
-                source_y0=t.source_rect.y0,
-                source_x1=t.source_rect.x1,
-                source_y1=t.source_rect.y1,
-            )
-            for t in grid.tiles
-        )
-        result = LayoutResultDTO(
-            total_tiles=grid.total_tiles,
-            rows=grid.rows,
-            cols=grid.cols,
-            tiles=tiles,
-        )
-        context.data["layout_result"] = result
-        return context
-
-
 class PosterSplitUseCase:
     """海报切分用例.
 
@@ -166,9 +114,9 @@ class PosterSplitUseCase:
             LayoutResultDTO.
         """
         tw, th = target_size_mm
-        target_size = Size(tw * MM_TO_PT, th * MM_TO_PT)
-        margin_pt = config.margin_mm * MM_TO_PT
-        overlap_pt = config.overlap_mm * MM_TO_PT
+        target_size = Size(tw * POINTS_PER_MM, th * POINTS_PER_MM)
+        margin_pt = config.margin_mm * POINTS_PER_MM
+        overlap_pt = config.overlap_mm * POINTS_PER_MM
 
         params = LayoutParams(
             page_size=page.size,

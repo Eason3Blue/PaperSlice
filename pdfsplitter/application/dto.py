@@ -1,26 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum, auto
 from pathlib import Path
-
-
-class ExportFormat(Enum):
-    """导出格式枚举."""
-
-    PDF_SINGLE = auto()
-    PDF_MULTIPLE = auto()
-    PNG = auto()
-    JPEG = auto()
-
-
-class PaperCategory(Enum):
-    """纸张类别枚举."""
-
-    ISO216 = "ISO216"
-    ANSI = "ANSI"
-    NORTH_AMERICAN = "NorthAmerican"
-    CUSTOM = "Custom"
 
 
 @dataclass(frozen=True)
@@ -42,18 +23,6 @@ class PageInfoDTO:
     height_pt: float
     is_landscape: bool
     is_portrait: bool
-
-
-@dataclass(frozen=True)
-class PageDTO:
-    """页面 DTO (含缩略图数据)."""
-
-    index: int
-    width_pt: float
-    height_pt: float
-    is_landscape: bool
-    is_portrait: bool
-    thumbnail_bytes: bytes | None = None
 
 
 @dataclass(frozen=True)
@@ -104,13 +73,3 @@ class LayoutResultDTO:
     rows: int
     cols: int
     tiles: tuple[PreviewTileDTO, ...]
-
-
-@dataclass(frozen=True)
-class ExportOptionDTO:
-    """导出选项 DTO."""
-
-    format: ExportFormat = ExportFormat.PDF_SINGLE
-    output_path: Path | None = None
-    dpi: int = 150
-    jpeg_quality: int = 85

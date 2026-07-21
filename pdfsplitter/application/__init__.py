@@ -1,10 +1,8 @@
-"""DTO module - 用于 GUI 层与领域层之间的数据传输."""
+"""Application layer — DTOs for GUI-domain data transfer."""
 
 from pdfsplitter.application.dto import (
     DocumentDTO,
-    ExportOptionDTO,
     LayoutResultDTO,
-    PageDTO,
     PageInfoDTO,
     PaperDTO,
     PosterSplitConfigDTO,
@@ -16,8 +14,6 @@ __all__ = [
     "LayoutResultDTO",
     "PreviewTileDTO",
     "DocumentDTO",
-    "PageDTO",
     "PageInfoDTO",
     "PaperDTO",
-    "ExportOptionDTO",
 ]
