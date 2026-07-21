@@ -156,7 +156,7 @@ class MainWindow(QMainWindow):
 
         preset_label_row = QHBoxLayout()
         preset_label_row.addWidget(QLabel("自动预设:"))
-        self.check_preset_all = QCheckBox("应用到所有页")
+        self.check_preset_all = QCheckBox("应用到已选择页")
         self.check_preset_all.setChecked(True)
         preset_label_row.addWidget(self.check_preset_all)
         preset_label_row.addStretch()
@@ -173,7 +173,7 @@ class MainWindow(QMainWindow):
 
         manual_label_row = QHBoxLayout()
         manual_label_row.addWidget(QLabel("手动添加:"))
-        self.check_manual_all = QCheckBox("应用到所有页")
+        self.check_manual_all = QCheckBox("应用到已选择页")
         self.check_manual_all.setChecked(False)
         manual_label_row.addWidget(self.check_manual_all)
         manual_label_row.addStretch()
@@ -495,14 +495,7 @@ class MainWindow(QMainWindow):
         self._vm.clear_page_filter()
 
     def _on_filter_changed(self, dto: PageFilterDTO) -> None:
-        active = dto.is_active
-        self.btn_clear_filter.setVisible(active)
-        if active:
-            new_label = "应用到筛选页"
-        else:
-            new_label = "应用到所有页"
-        self.check_preset_all.setText(new_label)
-        self.check_manual_all.setText(new_label)
+        self.btn_clear_filter.setVisible(dto.is_active)
 
     def _on_page_list_state_changed(self, state: PageListStateDTO) -> None:
         self._list_rebuilding = True

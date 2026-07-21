@@ -144,9 +144,9 @@ class MainViewModel(QObject):
         self._emit_page_list_state()
 
     def get_filtered_indices(self) -> set[int]:
-        if not self._page_filter.is_active or self._document is None:
-            return set(range(self._document.page_count))
-        return set(self._resolved_filter.matched_indices)
+        if self._document is None:
+            return set()
+        return set(self._selection.selected_indices)
 
     def set_page_filter(self, filter_obj: PageFilter) -> None:
         self._page_filter = filter_obj
@@ -254,14 +254,17 @@ class MainViewModel(QObject):
             return SplitLines.empty()
 
         if apply_to_all and self._document:
-            target_indices = self.get_filtered_indices() if self._page_filter.is_active else set(range(self._document.page_count))
+            target_indices = self.get_filtered_indices()
+            if not target_indices:
+                return
             for page_idx in range(self._document.page_count):
                 if page_idx not in target_indices:
                     continue
                 p = self._document.pages[page_idx]
                 sl = _make_lines(p)
                 self._page_states[page_idx] = self._make_page_state(sl)
-            self._split_lines = _make_lines(page)
+            if self._current_page_index in target_indices:
+                self._split_lines = _make_lines(page)
         else:
             self._split_lines = _make_lines(page)
 
@@ -276,7 +279,9 @@ class MainViewModel(QObject):
 
         if apply_to_all and self._document:
             self._save_current_page_state()
-            target_indices = self.get_filtered_indices() if self._page_filter.is_active else set(range(self._document.page_count))
+            target_indices = self.get_filtered_indices()
+            if not target_indices:
+                return
             for page_idx in range(self._document.page_count):
                 if page_idx not in target_indices:
                     continue
@@ -288,7 +293,8 @@ class MainViewModel(QObject):
                 existing["order_mode"] = "auto"
                 existing["order_indices"] = []
                 self._page_states[page_idx] = existing
-            self._split_lines = self._split_lines.with_vertical(page.width_pt / 2.0)
+            if self._current_page_index in target_indices:
+                self._split_lines = self._split_lines.with_vertical(page.width_pt / 2.0)
         else:
             self._split_lines = self._split_lines.with_vertical(page.width_pt / 2.0)
 
@@ -303,7 +309,9 @@ class MainViewModel(QObject):
 
         if apply_to_all and self._document:
             self._save_current_page_state()
-            target_indices = self.get_filtered_indices() if self._page_filter.is_active else set(range(self._document.page_count))
+            target_indices = self.get_filtered_indices()
+            if not target_indices:
+                return
             for page_idx in range(self._document.page_count):
                 if page_idx not in target_indices:
                     continue
@@ -315,7 +323,8 @@ class MainViewModel(QObject):
                 existing["order_mode"] = "auto"
                 existing["order_indices"] = []
                 self._page_states[page_idx] = existing
-            self._split_lines = self._split_lines.with_horizontal(page.height_pt / 2.0)
+            if self._current_page_index in target_indices:
+                self._split_lines = self._split_lines.with_horizontal(page.height_pt / 2.0)
         else:
             self._split_lines = self._split_lines.with_horizontal(page.height_pt / 2.0)
 
@@ -337,14 +346,20 @@ class MainViewModel(QObject):
     def clear_split_lines(self, apply_to_all: bool = False) -> None:
         if apply_to_all and self._document:
             self._save_current_page_state()
-            target_indices = self.get_filtered_indices() if self._page_filter.is_active else set(range(self._document.page_count))
+            target_indices = self.get_filtered_indices()
+            if not target_indices:
+                return
             if len(target_indices) < self._document.page_count:
                 for idx in target_indices:
                     self._page_states.pop(idx, None)
             else:
                 self._page_states.clear()
-        self._clear_order()
-        self._split_lines = SplitLines.empty()
+            if self._current_page_index in target_indices:
+                self._clear_order()
+                self._split_lines = SplitLines.empty()
+        else:
+            self._clear_order()
+            self._split_lines = SplitLines.empty()
         self._mark_dirty()
         self._update_split_lines_preview()
 
