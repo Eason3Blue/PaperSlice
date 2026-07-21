@@ -382,6 +382,38 @@ class MainViewModel(QObject):
         self._mark_dirty()
         self._update_split_lines_preview()
 
+    def apply_auto_order(self, apply_to_all: bool = False) -> None:
+        """按规则自动排列图块顺序, 如同手动点击一样.
+
+        Args:
+            apply_to_all: 是否应用到所有已选择页.
+        """
+        rows = self._split_lines.row_count
+        cols = self._split_lines.col_count
+        indices = list(self._order_rule.compute_indices(rows, cols))
+        self._has_manual_order = True
+        self._tile_order = TileOrder(
+            indices=tuple(indices),
+            mode="manual",
+            rule=self._order_rule,
+            rows=rows,
+            cols=cols,
+        )
+
+        if apply_to_all and self._document:
+            self._save_current_page_state()
+            target_indices = self.get_filtered_indices()
+            for page_idx in range(self._document.page_count):
+                if page_idx not in target_indices:
+                    continue
+                existing = self._page_states.get(page_idx, dict(self._empty_page_state()))
+                existing["order_mode"] = "manual"
+                existing["order_indices"] = indices
+                self._page_states[page_idx] = existing
+
+        self._mark_dirty()
+        self._update_split_lines_preview()
+
     def set_tile_order(self, ordered_indices: list[int]) -> None:
         self._has_manual_order = True
         self._tile_order = self._make_auto_order(len(ordered_indices)).with_manual_order(ordered_indices)

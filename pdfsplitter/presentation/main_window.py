@@ -196,18 +196,28 @@ class MainWindow(QMainWindow):
         order_group = QGroupBox("排序方式")
         ol = QVBoxLayout()
         ol.setSpacing(4)
-        self.check_auto_order = QCheckBox("自动顺序")
-        self.check_auto_order.setChecked(False)
-        ol.addWidget(self.check_auto_order)
-        auto_rule_row = QHBoxLayout()
-        auto_rule_row.addSpacing(20)
+
+        auto_row = QHBoxLayout()
+        self.btn_auto_order = QPushButton("自动")
+        self.btn_auto_order.setFixedWidth(50)
+        self.btn_auto_order.setToolTip("按规则自动排列图块顺序")
+        auto_row.addWidget(self.btn_auto_order)
+        self.check_order_apply_all = QCheckBox("应用到已选择页")
+        self.check_order_apply_all.setChecked(False)
+        auto_row.addWidget(self.check_order_apply_all)
+        auto_row.addStretch()
+        ol.addLayout(auto_row)
+
+        rule_row = QHBoxLayout()
+        rule_row.addSpacing(4)
         self.btn_order_rule = QPushButton("规则")
         self.btn_order_rule.setFixedWidth(50)
         self.btn_order_rule.setToolTip("设置自动排序规则")
-        auto_rule_row.addWidget(self.btn_order_rule)
-        auto_rule_row.addStretch()
-        ol.addLayout(auto_rule_row)
-        self.label_order_hint = QLabel("手动模式: 点击预览图块标记输出顺序")
+        rule_row.addWidget(self.btn_order_rule)
+        rule_row.addStretch()
+        ol.addLayout(rule_row)
+
+        self.label_order_hint = QLabel("点击预览图块可调整输出顺序")
         self.label_order_hint.setStyleSheet("color: #888;")
         ol.addWidget(self.label_order_hint)
         self.btn_reset_order = QPushButton("重置顺序")
@@ -304,9 +314,9 @@ class MainWindow(QMainWindow):
         self.btn_filter.clicked.connect(self._on_open_filter)
         self.btn_clear_filter.clicked.connect(self._on_clear_filter)
 
-        self.check_auto_order.toggled.connect(self._on_order_mode_changed)
         self.btn_reset_order.clicked.connect(self._on_reset_order)
         self.btn_order_rule.clicked.connect(self._on_order_rule)
+        self.btn_auto_order.clicked.connect(self._on_auto_order)
 
         self.btn_export_page.clicked.connect(self._on_export_page)
         self.btn_export.clicked.connect(self._on_export_all)
@@ -426,23 +436,14 @@ class MainWindow(QMainWindow):
         if dialog.exec() == OrderRuleDialog.DialogCode.Accepted:
             self._vm.set_order_rule(dialog.result_rule())
 
-    def _on_order_mode_changed(self, checked: bool) -> None:
-        if checked:
-            self._vm.reset_order()
-            self.preview.clear_order()
-            self.label_order_hint.setText("已启用自动顺序, 取消勾选后可手动点击图块排序")
-            self.label_order_hint.setStyleSheet("color: #d9534f; font-weight: bold;")
-        else:
-            self.label_order_hint.setText("手动模式: 点击预览图块标记输出顺序")
-            self.label_order_hint.setStyleSheet("color: #888;")
-
     def _on_tile_clicked(self, tile_index: int) -> None:
-        if self.check_auto_order.isChecked():
-            self.status_bar.showMessage('请先取消勾选"自动顺序"以启用手动排序')
-            return
         order = self.preview.get_order_sequence()
         self._vm.set_tile_order(order)
         self.status_bar.showMessage(f"图块顺序: {[i + 1 for i in order]}")
+
+    def _on_auto_order(self) -> None:
+        self._vm.apply_auto_order(self.check_order_apply_all.isChecked())
+        self.status_bar.showMessage("已按规则自动排列图块顺序")
 
     def _on_reset_order(self) -> None:
         self._vm.reset_order()
