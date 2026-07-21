@@ -208,7 +208,7 @@ class MainWindow(QMainWindow):
 
         layout.addStretch()
 
-        self.btn_export_page = QPushButton("导出当前页")
+        self.btn_export_page = QPushButton("导出已选择页")
         self.btn_export_page.setMinimumHeight(32)
         layout.addWidget(self.btn_export_page)
 
@@ -550,22 +550,17 @@ class MainWindow(QMainWindow):
         self._list_rebuilding = False
 
     def _on_export_page(self) -> None:
-        """导出当前页."""
-        if self._vm.split_lines.is_empty:
-            QMessageBox.warning(self, "提示", "请先放置切割线")
+        """导出已选择页."""
+        if self._vm.document is None:
+            QMessageBox.warning(self, "提示", "请先加载文档")
             return
-        if self._vm.has_incomplete_order():
-            reply = QMessageBox.question(
-                self, "确认",
-                "仍有未选择顺序的图块，\n未选择的图块将被舍弃，是否继续？",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            )
-            if reply != QMessageBox.StandardButton.Yes:
-                return
+        if not self._vm.selected_indices:
+            QMessageBox.warning(self, "提示", "请先勾选要导出的页面")
+            return
 
-        default_name = Path(self._vm.document.filename).stem + "_split.pdf"
+        default_name = Path(self._vm.document.filename).stem + "_selected.pdf"
         path, _ = QFileDialog.getSaveFileName(
-            self, "导出当前页", default_name,
+            self, "导出已选择页", default_name,
             "PDF Files (*.pdf);;All Files (*)"
         )
         if not path:
@@ -573,7 +568,7 @@ class MainWindow(QMainWindow):
 
         paper_name = self.combo_paper.currentText()
         paper_category = self.combo_category.currentText()
-        self._vm.export(path, paper_name, paper_category)
+        self._vm.export_all(path, paper_name, paper_category)
 
     def _on_export_all(self) -> None:
         """导出全部已配置页面."""
