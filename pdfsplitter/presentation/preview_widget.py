@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import logging
+from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING
 
-from PySide6.QtCore import Qt, QPointF, QRectF, Signal
+from PySide6.QtCore import Qt, QPointF, QRectF, QTimer, Signal
 from PySide6.QtGui import (
     QBrush,
     QColor,
     QFont,
+    QPainter,
     QPen,
     QPixmap,
 )
@@ -19,9 +20,7 @@ from PySide6.QtWidgets import (
     QGraphicsPixmapItem,
     QGraphicsRectItem,
     QGraphicsScene,
-    QGraphicsTextItem,
     QGraphicsView,
-    QRubberBand,
 )
 
 logger = logging.getLogger(__name__)
@@ -154,6 +153,11 @@ class _TileOverlay(QGraphicsRectItem):
         return self._order_number
 
 
+class _FitMode(Enum):
+    FIT_PAGE = "fit_page"
+    MANUAL = "manual"
+
+
 class PreviewWidget(QGraphicsView):
     """页面预览组件.
 
@@ -163,22 +167,29 @@ class PreviewWidget(QGraphicsView):
     - 点击图块指定输出顺序
     - 拖拽 PDF 文件直接打开
     - 未加载文档时显示占位图
+    - Ctrl+滚轮 / 按钮缩放 (区分自动适应与手动模式)
     """
 
     line_moved_signal = Signal(str, int, float)
     tile_clicked_signal = Signal(int)
     file_dropped_signal = Signal(str)
+    zoom_changed_signal = Signal(float)
+
+    _ZOOM_MIN: float = 0.05
+    _ZOOM_MAX: float = 10.0
+    _ZOOM_STEP: float = 0.15
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._scene = QGraphicsScene(self)
         self.setScene(self._scene)
-        self.setRenderHint(self.renderHints())
-        self.setDragMode(QGraphicsView.DragMode.NoDrag)
+        self.setRenderHint(QPainter.RenderHint.Antialiasing)
+        self.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.setStyleSheet("background-color: #181a1f; border: none;")
 
         self._pixmap_item: QGraphicsPixmapItem | None = None
@@ -189,6 +200,13 @@ class PreviewWidget(QGraphicsView):
 
         self._ready_pixmap: QPixmap | None = None
         self._ready_item: QGraphicsPixmapItem | None = None
+
+        self._fit_mode: _FitMode = _FitMode.FIT_PAGE
+        self._zoom_level: float = 1.0
+
+        self._fit_timer = QTimer(self)
+        self._fit_timer.setSingleShot(True)
+        self._fit_timer.timeout.connect(self._perform_deferred_fit)
 
         self.setMouseTracking(True)
         self.setAcceptDrops(True)
@@ -211,7 +229,9 @@ class PreviewWidget(QGraphicsView):
             return
         scene_rect = self._ready_pixmap.rect()
         self._scene.setSceneRect(QRectF(scene_rect))
-        self.fitInView(QRectF(scene_rect), Qt.AspectRatioMode.KeepAspectRatio)
+        self._fit_mode = _FitMode.FIT_PAGE
+        self._zoom_level = 1.0
+        self._fit_to_view()
 
     def dragEnterEvent(self, event) -> None:
         if event.mimeData().hasUrls():
@@ -253,7 +273,9 @@ class PreviewWidget(QGraphicsView):
         self._scene.addItem(self._pixmap_item)
         self._scene.setSceneRect(QRectF(pixmap.rect()))
         self._image_size = (pixmap.width(), pixmap.height())
-        self.fitInView(self._scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
+        self._fit_mode = _FitMode.FIT_PAGE
+        self._zoom_level = 1.0
+        self._fit_to_view()
 
     def set_split_lines(self, verticals: list[float], horizontals: list[float],
                         page_w: float, page_h: float,
@@ -404,9 +426,86 @@ class PreviewWidget(QGraphicsView):
             return list(range(len(self._tile_overlays)))
         return list(self._order_sequence)
 
+    def zoom_in(self) -> None:
+        """放大一级."""
+        self._fit_mode = _FitMode.MANUAL
+        new_level = self._zoom_level * (1.0 + self._ZOOM_STEP)
+        if self._ZOOM_MIN <= new_level <= self._ZOOM_MAX:
+            self._apply_zoom(new_level)
+
+    def zoom_out(self) -> None:
+        """缩小一级."""
+        self._fit_mode = _FitMode.MANUAL
+        new_level = self._zoom_level / (1.0 + self._ZOOM_STEP)
+        if self._ZOOM_MIN <= new_level <= self._ZOOM_MAX:
+            self._apply_zoom(new_level)
+
+    def zoom_fit(self) -> None:
+        """缩放至适应窗口."""
+        self._fit_mode = _FitMode.FIT_PAGE
+        self._zoom_level = 1.0
+        self._fit_to_view()
+        self.zoom_changed_signal.emit(1.0)
+
+    def zoom_to(self, level: float) -> None:
+        """设置指定缩放级别.
+
+        Args:
+            level: 缩放级别 (1.0 = 适应窗口).
+        """
+        self._fit_mode = _FitMode.MANUAL
+        level = max(self._ZOOM_MIN, min(self._ZOOM_MAX, level))
+        if abs(level - self._zoom_level) < 0.001:
+            return
+        self._apply_zoom(level)
+
+    def zoom_level(self) -> float:
+        """返回当前缩放级别 (1.0 = 适应窗口)."""
+        return self._zoom_level
+
+    def wheelEvent(self, event) -> None:
+        """Ctrl+滚轮缩放预览."""
+        if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            self._fit_mode = _FitMode.MANUAL
+            delta = event.angleDelta().y()
+            factor = 1.0 + self._ZOOM_STEP if delta > 0 else 1.0 / (1.0 + self._ZOOM_STEP)
+            new_level = self._zoom_level * factor
+            if self._ZOOM_MIN <= new_level <= self._ZOOM_MAX:
+                self._apply_zoom(new_level)
+        else:
+            super().wheelEvent(event)
+
+    def _apply_zoom(self, level: float) -> None:
+        """以绝对级别应用缩放 — 先 fit 再 scale(level)，避免累积误差."""
+        level = max(self._ZOOM_MIN, min(self._ZOOM_MAX, level))
+        if abs(level - self._zoom_level) < 0.001:
+            return
+        self._fit_to_view()
+        if abs(level - 1.0) > 0.001:
+            self.scale(level, level)
+        self._zoom_level = level
+        self.zoom_changed_signal.emit(level)
+
+    def _fit_to_view(self) -> None:
+        """缩放场景以适应视图 (不发送信号, 不改变模式)."""
+        self.fitInView(self._scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
+
+    def _schedule_fit(self) -> None:
+        """延迟刷新适应 — 合并短时间内的连续 resize 事件."""
+        if self._fit_timer.isActive():
+            self._fit_timer.stop()
+        self._fit_timer.start(100)
+
+    def _perform_deferred_fit(self) -> None:
+        """执行延迟刷新.
+
+        仅在 FIT_PAGE 模式下重新适应; MANUAL 模式保持用户缩放不变.
+        """
+        if self._fit_mode == _FitMode.FIT_PAGE:
+            self._fit_to_view()
+            self._zoom_level = 1.0
+
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
-        if self._pixmap_item:
-            self.fitInView(self._scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
-        elif self._ready_item:
-            self._center_placeholder()
+        if self._pixmap_item or self._ready_item:
+            self._schedule_fit()

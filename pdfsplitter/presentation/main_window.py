@@ -182,6 +182,37 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         self.preview = PreviewWidget()
         layout.addWidget(self.preview)
+
+        zoom_bar = QHBoxLayout()
+        zoom_bar.setContentsMargins(4, 2, 4, 4)
+
+        self.label_zoom = QLabel("100%")
+        self.label_zoom.setFixedWidth(46)
+        self.label_zoom.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.label_zoom.setStyleSheet("color: #aaa; font-size: 11px;")
+
+        self.btn_zoom_out = QPushButton("−")
+        self.btn_zoom_out.setFixedSize(28, 24)
+        self.btn_zoom_out.setToolTip("缩小 (Ctrl+滚轮)")
+        self.btn_zoom_out.setStyleSheet("QPushButton { font-size: 14px; font-weight: bold; }")
+
+        self.btn_zoom_in = QPushButton("+")
+        self.btn_zoom_in.setFixedSize(28, 24)
+        self.btn_zoom_in.setToolTip("放大 (Ctrl+滚轮)")
+        self.btn_zoom_in.setStyleSheet("QPushButton { font-size: 14px; font-weight: bold; }")
+
+        self.btn_zoom_fit = QPushButton("适应")
+        self.btn_zoom_fit.setFixedHeight(24)
+        self.btn_zoom_fit.setToolTip("适应窗口")
+
+        zoom_bar.addStretch()
+        zoom_bar.addWidget(self.label_zoom)
+        zoom_bar.addWidget(self.btn_zoom_out)
+        zoom_bar.addWidget(self.btn_zoom_in)
+        zoom_bar.addWidget(self.btn_zoom_fit)
+        zoom_bar.addStretch()
+        layout.addLayout(zoom_bar)
+
         return panel
 
     def _connect_signals(self) -> None:
@@ -208,6 +239,11 @@ class MainWindow(QMainWindow):
         self.preview.line_moved_signal.connect(self._vm.move_line)
         self.preview.tile_clicked_signal.connect(self._on_tile_clicked)
         self.preview.file_dropped_signal.connect(self._on_file_dropped)
+        self.preview.zoom_changed_signal.connect(self._on_zoom_changed)
+
+        self.btn_zoom_in.clicked.connect(self.preview.zoom_in)
+        self.btn_zoom_out.clicked.connect(self.preview.zoom_out)
+        self.btn_zoom_fit.clicked.connect(self.preview.zoom_fit)
 
         self._vm.document_loaded_signal.connect(self._on_document_loaded)
         self._vm.preview_pixmap_ready_signal.connect(self._on_preview_ready)
@@ -294,6 +330,9 @@ class MainWindow(QMainWindow):
         self._vm.reset_order()
         self.preview.clear_order()
         self.status_bar.showMessage("排序已重置为自动")
+
+    def _on_zoom_changed(self, level: float) -> None:
+        self.label_zoom.setText(f"{int(level * 100)}%")
 
     def _on_export_page(self) -> None:
         """导出当前页."""
